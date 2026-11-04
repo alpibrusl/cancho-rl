@@ -1,0 +1,9 @@
+edition 7;
+
+fn fib(n: int) -> [] int {
+    return 0;
+}
+
+fn main(world: World) -> [] int {
+    return 0;
+}

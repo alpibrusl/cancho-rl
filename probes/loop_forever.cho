@@ -1,0 +1,6 @@
+edition 7;
+
+fn fib(n: int) -> [] int {
+    while true { }
+    return 0;
+}

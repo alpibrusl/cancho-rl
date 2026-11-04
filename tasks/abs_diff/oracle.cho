@@ -1,0 +1,7 @@
+edition 7;
+
+fn o_abs_diff(a: int, b: int) -> [] int {
+    let d = a - b;
+    if d < 0 { return 0 - d; }
+    return d;
+}

@@ -1,0 +1,11 @@
+edition 7;
+
+fn sum_proper_divisors(n: int) -> [] int {
+    var s = 0;
+    var d = 1;
+    while d < n {
+        if n % d == 0 { s = s + d; }
+        d = d + 1;
+    }
+    return s;
+}

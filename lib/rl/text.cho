@@ -1,0 +1,109 @@
+edition 9;
+
+module rl.text;
+
+// Small text helpers shared by the task loader and the grader: whole-file reads, integers in and out of bytes, lines.
+
+import std.buffer;
+import std.bytes;
+
+// All of a file: its bytes and 0, or nothing and the errno (at least 1).
+pub fn read_file[&h, &f, &p](heap: &!h Heap, fs: &f Fs(""), path: &p [byte]) -> [heap, fs_read(""), file_read] (buffer.Buffer, int) {
+    var out = buffer.empty(heap, 4096);
+    var trouble = 0;
+    match open_read(fs, path) {
+        Opened::Failed(reason) => {
+            trouble = reason;
+            if trouble == 0 {
+                trouble = 1;
+            }
+        }
+        Opened::Ok(opened) => {
+            var file = opened;
+            var chunk = buffer.empty(heap, 65536);
+            borrow mut file as &!handle in {
+                var going = true;
+                while going {
+                    var got = 0;
+                    borrow mut chunk as &!c in {
+                        match file_read(handle, buffer.room(c)) {
+                            Read::Got(n) => {
+                                got = n;
+                                buffer.filled(c, n);
+                            }
+                            Read::End => {
+                                going = false;
+                            }
+                            Read::Failed(reason) => {
+                                going = false;
+                                trouble = reason;
+                                if trouble == 0 {
+                                    trouble = 1;
+                                }
+                            }
+                        }
+                    }
+                    if got > 0 {
+                        borrow chunk as &c in {
+                            out = buffer.append(heap, out, buffer.bytes(c));
+                        }
+                        borrow mut chunk as &!c in {
+                            buffer.clear(c);
+                        }
+                    }
+                }
+            }
+            buffer.drop(heap, chunk);
+            file_close(file);
+        }
+    }
+    return (out, trouble);
+}
+
+// The decimal integer in `text` (an optional leading '-'); 0 for anything else. The task files are written by hand and
+// checked by the gate, so a malformed number is a gate failure, not a case this has to report.
+pub fn parse_int[&t](text: &t [byte]) -> [] int {
+    var i = 0;
+    var neg = false;
+    if len(text) > 0 && int_of(text[0]) == 45 {
+        neg = true;
+        i = 1;
+    }
+    var v = 0;
+    while i < len(text) && bytes.is_digit(int_of(text[i])) {
+        v = v * 10 + (int_of(text[i]) - 48);
+        i = i + 1;
+    }
+    if neg {
+        return 0 - v;
+    }
+    return v;
+}
+
+// `n` as a literal the compiler reads back: negative numbers in parentheses.
+pub fn push_int[&h](heap: &!h Heap, b: buffer.Buffer, n: int) -> [heap] buffer.Buffer {
+    if n < 0 {
+        var out = buffer.append(heap, b, "(-");
+        out = buffer.push_nat(heap, out, 0 - n);
+        return buffer.push(heap, out, byte_of(41));
+    }
+    return buffer.push_nat(heap, b, n);
+}
+
+// How many lines `text` has (a last line without a newline counts).
+pub fn line_count[&t](text: &t [byte]) -> [] int {
+    return bytes.count_byte(text, 10) + 1;
+}
+
+// Line `n` (1-based) without its newline.
+pub fn line[&t](text: &t [byte], n: int) -> [] &t [byte] {
+    return bytes.field(text, 10, n);
+}
+
+// The text after `key` when `text` starts with it (trimmed), else an empty slice.
+pub fn after[&t, &k](text: &t [byte], key: &k [byte]) -> [] &t [byte] {
+    if bytes.starts_with(text, key) {
+        return bytes.trim(text[len(key)..len(text)]);
+    }
+    return text[0..0];
+}

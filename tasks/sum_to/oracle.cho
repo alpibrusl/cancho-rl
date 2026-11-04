@@ -1,0 +1,5 @@
+edition 7;
+
+fn o_sum_to(n: int) -> [] int {
+    return (n / 2) * (n + 1) + (n % 2) * ((n + 1) / 2);
+}

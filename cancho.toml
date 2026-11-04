@@ -1,0 +1,9 @@
+[package]
+name = "rl"
+cancho = "8812bd599813ee4fbee49a4562dc35b33964e342"   # the compiler these sources were written for (this repository's main at the time)
+
+[[bin]]
+name = "rl"
+sources = ["lib/rl/text", "lib/rl/grade", "tools/rl/main"]
+std = true
+out = "build/rl"

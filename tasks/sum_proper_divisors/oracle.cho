@@ -1,0 +1,15 @@
+edition 7;
+
+fn o_sum_proper_divisors(n: int) -> [] int {
+    var s = 0;
+    var d = 1;
+    while d * d <= n {
+        if n % d == 0 {
+            s = s + d;
+            let e = n / d;
+            if e != d { s = s + e; }
+        }
+        d = d + 1;
+    }
+    return s - n;
+}

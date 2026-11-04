@@ -1,0 +1,6 @@
+edition 7;
+
+fn o_count_digits(n: int) -> [] int {
+    if n < 10 { return 1; }
+    return 1 + o_count_digits(n / 10);
+}

@@ -1,0 +1,6 @@
+edition 7;
+
+fn o_digit_sum(n: int) -> [] int {
+    if n == 0 { return 0; }
+    return n % 10 + o_digit_sum(n / 10);
+}

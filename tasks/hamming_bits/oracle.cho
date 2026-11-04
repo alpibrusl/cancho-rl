@@ -1,0 +1,8 @@
+edition 7;
+
+fn o_hamming_bits(a: int, b: int) -> [] int {
+    if a == 0 && b == 0 { return 0; }
+    var d = 0;
+    if a % 2 != b % 2 { d = 1; }
+    return d + o_hamming_bits(a / 2, b / 2);
+}

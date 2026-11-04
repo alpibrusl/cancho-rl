@@ -101,3 +101,64 @@ Inherited from cancho-gpu and cancho, because they work:
 ## 10. Limits of this document
 
 Written from the documents and file names of cancho-gpu, not from running anything. The kernel contracts (the weighted loss, the adapters-off forward, the cost of merging adapters per iteration) and cancho-code's reward API are to be read, not assumed, before R0 and R2. All timing figures quoted are cancho-gpu's own, on one M4 Max; none was measured for RL.
+
+## 11. R0 harness probe (2026-11-04): what cancho-code's eval offers as a reward
+
+Read and run on cancho-code at `6fcac18`, compiler `target/debug/cancho` of this repository (a **debug** build; release timings are **[unknown]**). Nothing was changed in cancho-code.
+
+* **[read]** The scoring entry point exists and is a file-to-score call: `CANCHO=<compiler> python3 eval/audit_<item>.py <project.cho>` prints per-function-group `passed/of` and `TOTAL n/N`. There are 14 audits (`basics`, `tokenbucket`, `roman`, `base64`, `duration`, `editdistance`, `sortedmap`, `jsonptr`, `expr`, `glob`, `semver`, `ini`, `csv`, `multi`); `tasks.json` lists 13 tasks. Oracle sizes run from 25 (`sortedmap`) to 873 (`multi`) cases. The audit wraps the candidate (strips `main`, makes functions `pub`, adds test helpers) and runs `cancho test`.
+* **[measured]** `roman/reference.cho` scored 439/439 in three runs (0 disagreements; R0(a) wants 20, so this is 3 of 20). The empty program (`edition 7;` only) scored 0/439 with the compiler's error per group. Wall time per score was 7.4 to 10.4 s with 1.3 s user CPU, so most of it is waiting (compile or process startup), **[unknown]** which.
+* **[read]** Safety: the only limit is `timeout=300` on one `cancho test` call (`audit_basics.py`; `audit_roman.py` has none). There is **no memory limit and no sandbox**. This does not meet the working rule for untrusted programs; R0 needs a wrapper (time and memory limits, crash = reward zero), not a change to the audits.
+* **[derived]** The partial score (`n/N`, per group) is a usable dense reward; pass/fail would be `n == N`.
+* **Correction to section 3, row "Rewards"**: it is no longer **[unknown]**; the API is the audit script above.
+* **The gap in R0(b) stands, in measured form:** 14 items, not 200 tasks. A per-function-group split gives somewhat more units (roman has 3 groups) but nowhere near 200, and the audit shapes are fixed by each item's plan, so a task is a whole library built from a plan, not a short completion. Getting to 200 needs new tasks (a generator, or small single-function items with their own oracles). That is a design decision, left to the maintainer.
+* **Not probed:** the "prints the expected output" and "exits 0 early" hacking probes (R0(c)): the audits call the candidate's functions, so those probes need an item-level test, written with the wrapper. Held-out separation (R0(b)) is **[unknown]**: oracles live in the same repository as `reference/`.
+
+## 12. R0 task set: small single-function tasks (decided 2026-11-04, before the code)
+
+> **Corrected 2026-11-04 (section 14): the Python grader, generator and `prompt.json`/`cases.json` described here were replaced by cancho.** What still holds: the task shape, the independent oracle, the split idea (now FNV-1a, not SHA-256), the reward `passed/of` plus `solved`. What changed: `tasks/<id>/` holds `task.spec`, `oracle.cho` and `reference.cho`; the grader is `rl grade`.
+
+The maintainer chose to write small tasks rather than relax R0(b) (section 11). The design:
+
+* **A task** is one pure function over `int`/`bool` (effect row `[]`), the shape of cancho-code's `basics` item, so the existing way of testing (a generated `cancho test` file, one `test_cNNN` per case, grouped by function) carries over. It has: `prompt.json` (name, signature, description, a few visible examples), `cases.json` (hidden oracle cases, JSON lines of `{args, expect}`), `reference.cho`.
+* **Oracle independence:** `cases.json` is computed by a Python function written separately from `reference.cho`, plus hand-computed anchors asserted in the generator (as `basics/oracle.py` does). The reference must score full on its own cases; a case set that its reference fails is a bug in one of the two.
+* **Split:** a task is held out when `sha256(id)` mod 4 == 0 (a fixed rule, not a choice made after seeing results). Held-out `cases.json` is read only by `grade.py` when called with a held-out id and never copied into any prompt or training record.
+* **Grader `grade.py <id> <candidate.cho>`:** builds the test file, runs `cancho test` in a child with a wall-time limit and `RLIMIT_CPU`; prints one JSON object `{id, passed, of, reward, status}` with `reward = passed/of` and `status` one of `ok`, `build_error`, `trap`, `timeout`. Any child failure is reward 0; the grader itself never raises on a candidate. **[unknown]** whether macOS enforces `RLIMIT_AS`/`RLIMIT_DATA` for the compiler's output; the memory limit is set and its effect is measured before it is claimed.
+* **Count:** the target stays 200. The first commit builds the machinery and a first batch; the number reached is stated in the commit, not the target.
+* **Sandbox note:** the candidate is a cancho program compiled by `cancho test` with no declared effects, so it cannot reach the filesystem or network by language rule **[read: cancho's effect rows, AGENTS.md]**; the limits cover only loops and memory.
+
+## 13. R0 first batch: what was built and measured (2026-11-04)
+
+> **Superseded by section 15 for the tool; the measurements stand** (they were reproduced with the cancho grader, section 15).
+
+Built: `tools/grade.py` (the grader), `tools/gen_tasks.py` + `tools/tasks_a.py` (definitions), `tasks/<id>/` (generated), `probes/` (hacking and failure probes). Compiler: this repository's `target/debug/cancho`.
+
+* **[measured] 34 tasks, not 200.** 22 train, 12 held out by the hash rule (35%, not exactly 25%: the rule is fixed, the share is what it gives). Every reference scores full on its own cases (34/34, first run). The remaining 166 tasks are not written; R0(b) is **not met**.
+* **[measured] Determinism (R0a):** 20 repeated gradings each of `fib` (reference), `fib` (a mutant) and `triangle_kind` (reference): 60 gradings, 0 disagreements.
+* **[measured] Probes on `fib`:** empty program 0/91 (`build_error`); garbage 0/91; `while true {}` 0/91 (`timeout`, wall limit); division by zero 0/91; a program with an early-exit `main` that returns 0: 1/91 (its `fib` is the constant 0, which is right for n = 0 only); a constant-0 `fib`: 1/91; an off-by-one mutant: 1/91. None solves the task (`solved` is false); **the dense reward `passed/of` gives a trivial program about 1% on this task, and a task whose oracle is dominated by one common value would give more.** Whether RL should use the dense reward or `solved` is a decision for R1, and the per-task floor of the constant programs should be reported with the pass rate.
+* **[unknown] Memory limit:** `RLIMIT_AS` is set but a program that allocates heavily was not run; no claim is made that memory is bounded. A program that tries `main` effects was not tried; the "prints the expected output" probe is moot for graded functions (`main` is stripped before grading).
+* **[unknown] Speed:** about 8 s a grading on the debug compiler, 4 in parallel; 34 references took 26 s. Release-build time and the cost of 8 samples x 200 tasks per iteration are not measured.
+* **[open]** Base-model pass rate (R0b: 10 to 70% with 8 samples) needs a model and has not been run. The tasks are mostly easy integer functions, so a coding model may sit above 70%; that is the first thing to measure before writing the other 166.
+
+## 14. The package is cancho; Python is a comparison helper (decided 2026-11-04, before the port)
+
+The maintainer's rule: **cancho-rl is pure cancho; Python may only be a helper that compares with other frameworks, or not be used.** Sections 12 and 13 built the grader, generator and oracles in Python; that is **corrected here**: those files are a first version, to be replaced, not kept. The pattern is the sibling's: cancho-opt is cancho with `scripts/*.py` that only compare it with scipy.
+
+* **In cancho (the package):** the task spec parser, the test-file composer, the grader (spawn `cancho test` under a deadline, parse its summary), the task oracles (`tasks/<id>/oracle.cho`, written in a different style from `reference.cho`: brute force where the reference is clever), the JSON answer, and later the rollout/advantage/loss code that is not a kernel. Binary `rl`, built with `cancho build --bin rl`.
+* **Task format (no JSON in the data, so no Python to produce it):** `tasks/<id>/task.spec`, line oriented `key: value`: `name`, `ret` (int or bool), `desc`, `example` (a call and its value, hand-checked), `grid` (one line of ints per parameter; the cases are their product, every k-th taken above 250) and `case` (explicit tuples). `oracle.cho` defines `o_<name>`; the composed test file asserts `name(args) == o_name(args)` per case, so no expected values are stored.
+* **Python's remaining role (`scripts/`):** `crosscheck.py` evaluates the same functions with Python's own `math`, on the cases `rl cases <task>` prints, and fails on a disagreement: an independent oracle in another framework, as `check_scipy.py` is for cancho-opt. It is not needed to build, grade or train.
+* **Siblings to reuse, by commit pin (`cancho add`), not by copying and not by shelling out** **[read: alpibrusl/cancho-tools and cancho-stats, shallow clones, 2026-11-04]**: `cancho-tools` has a `contract` package (flag parsing with rule-tagged refusals, a JSON answer envelope, bounded `read_all`, atomic writes) and a `run` tool that starts a program with a deadline and an output cap, the shape this grader needs; `cancho-stats` has a percentile bootstrap (`lib/csvx/boot.cho`), which is the success rule's interval in section 5. Which of them cancho-rl takes as a dependency is decided when the code first needs it; this section does not claim they fit.
+* **Split rule corrected:** the hash is FNV-1a over the task id, mod 4 == 0 held out (the SHA-256 of section 12 needed a library the first tool does not otherwise use). Nothing was trained on the old split.
+* **Before the Python files are deleted** the cancho grader must reproduce the Python grader's results: all 34 references full, the probes of section 13 at the same scores. Until then they remain, marked as superseded.
+
+## 15. The port to cancho, measured (2026-11-04)
+
+Built (cancho, edition 9 for `exec_spawn_detached`): `lib/rl/text.cho` (file reads, integers, lines), `lib/rl/grade.cho` (compose the test file, run `cancho test`), `tools/rl/main.cho` (`rl grade CANCHO TASKDIR CANDIDATE SCRATCH`), `cancho.toml`, and per task `task.spec` (`name`, `ret`, `sig`, `desc`, `example`, `case` lines), `oracle.cho` (written in a different style from the reference: recursion and pair-wise divisor loops where the reference iterates), `reference.cho`. `scripts/gate.sh` is the gate.
+
+* **[measured]** All 34 references are `solved` by the cancho grader; the six probes score exactly what the Python grader gave (empty 0/91, garbage 0/91, division by zero 0/91, early-exit `main` 1/91, constant 0 1/91, off-by-one mutant 1/91); `loop_forever` is `timeout` with reward 0 and leaves no process behind (the wall deadline kills the group).
+* **[measured]** Cross-check: `scripts/crosscheck.py` grades, for each task, a table program holding Python's own answers for every case against the cancho oracle: 34 of 34 agree. Watched failing once: changing `o_popcount` to `n % 3` makes it report `DISAGREE popcount` (3 of 24), and restoring it agrees.
+* **[measured]** Speed: about 0.9 s a grading (the Python grader took 8 s), 34 references in 8.5 s with 4 in parallel, on the debug compiler. The earlier figure was dominated by Python and `sh` start-up, not the compiler.
+* **Correction:** `ulimit -t 20` did **not** stop a runaway program in 20 s on this macOS (44 s of CPU were used before the 60 s wall deadline fired). The wall deadline is the limit that works; the CPU limit is not claimed. The memory limit is still unmeasured.
+* **Python left in the package:** `scripts/crosscheck.py` and `scripts/oracles_py.py` only (comparison helpers). No Python builds, grades or trains.
+* **Not built:** `rl prompt` (print a task as a prompt for the policy), grid expansion in `task.spec` (cases are listed one per line, as the Python version generated them), the split rule in cancho (FNV-1a is decided, not coded), the other 166 tasks, and every later milestone. Dependencies on cancho-tools and cancho-stats are not taken yet.
+* **A process slip, recorded:** an unnecessary `git rm --cached -r .` staged the deletion of three tracked files; `git reset` restored the index, nothing was committed.

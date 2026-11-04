@@ -1,0 +1,9 @@
+edition 7;
+
+fn o_cube_root_floor(n: int) -> [] int {
+    var r = 0;
+    while (r + 1) * (r + 1) * (r + 1) <= n {
+        r = r + 1;
+    }
+    return r;
+}

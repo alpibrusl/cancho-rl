@@ -1,0 +1,12 @@
+edition 7;
+
+fn is_perfect_square(n: int) -> [] bool {
+    if n < 0 { return false; }
+    var lo = 0;
+    var hi = 1000001;
+    while lo < hi {
+        let mid = lo + (hi - lo) / 2;
+        if mid * mid < n { lo = mid + 1; } else { hi = mid; }
+    }
+    return lo * lo == n;
+}

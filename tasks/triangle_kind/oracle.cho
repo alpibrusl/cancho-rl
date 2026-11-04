@@ -1,0 +1,15 @@
+edition 7;
+
+fn o_triangle_kind(a: int, b: int, c: int) -> [] int {
+    var lo = a;
+    var mid = b;
+    var hi = c;
+    if lo > mid { let t = lo; lo = mid; mid = t; }
+    if mid > hi { let t = mid; mid = hi; hi = t; }
+    if lo > mid { let t = lo; lo = mid; mid = t; }
+    if lo <= 0 { return 0; }
+    if lo + mid <= hi { return 0; }
+    if lo == hi { return 1; }
+    if lo == mid || mid == hi { return 2; }
+    return 3;
+}
