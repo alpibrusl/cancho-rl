@@ -1,10 +1,12 @@
 # cancho-rl: reinforcement learning on cancho-gpu (a design, written before the code)
 
+> Amended 2026-11-04 (second version): the scope is any policy with log-probabilities and a weighted gradient step, with two tracks (language models first, small control policies second); see sections 1 and 4b.
+
 > Written 2026-11-04, before any code. **Nothing in this document is built or measured in this repository.** Claims carry a mark: **[read]** from a file of another repository (named), **[derived]** from numbers that were measured elsewhere, **[estimate]** a guess with its reasoning, **[unknown]** not looked at yet and to be read before the milestone that depends on it. A claim that turns out false is corrected here, in place, with the date.
 
 ## 1. What this is, and what it is not
 
-`cancho-rl` is where reinforcement-learning *algorithms* live: the rollout loop, rewards, advantage estimators, the policy-gradient loss and the experiments that measure them. It runs on top of [`cancho-gpu`](https://github.com/alpibrusl/cancho-gpu), which owns the kernels, the training sessions and the runners.
+`cancho-rl` is where reinforcement-learning *algorithms* live, for **any policy that can give the log-probability of its actions and take a weighted gradient step**: a language model (the first track, sections 2 to 7) and a small control network for a robot (the second track, section 4b): the rollout loop, rewards, advantage estimators, the policy-gradient loss and the experiments that measure them. It runs on top of [`cancho-gpu`](https://github.com/alpibrusl/cancho-gpu), which owns the kernels, the training sessions and the runners.
 
 The split, and why:
 
@@ -12,7 +14,9 @@ The split, and why:
 * **cancho-rl keeps the algorithms and the experiments.** GRPO, REINFORCE with a leave-one-out baseline, PPO if ever; reward functions; the evaluation protocol.
 * **The environments stay where they live.** Tasks with a checkable reward for a coding model come from `cancho-code` (its eval harness and journals); a robot policy would come from `cancho-robot`'s simulator. `cancho-rl` calls them; they do not depend on it.
 
-Not goals: a general RL framework, a gym replacement, multi-GPU or NVIDIA training (cancho-gpu's CUDA path has run only kernels so far, not a training session), RLHF with a learned reward model.
+Not goals: a gym replacement or a catalogue of every algorithm (an algorithm is added when a track needs it and has a measured baseline), multi-GPU or NVIDIA training (cancho-gpu's CUDA path has run only kernels so far, not a training session), RLHF with a learned reward model.
+
+**Two tracks, one algorithm layer.** The LLM track (GRPO, language-model policies) is built first because its reward is checkable and its baseline is measured (section 2). The control track (section 4b) shares the parts that do not depend on the policy: the advantage estimators, the loss as a weighted log-probability objective, the evaluation protocol with seeds and bootstrap intervals, and the rule that a reference implementation in torch comes first. What differs is the regime: a language-model iteration is dominated by generating completions, a control-policy iteration by simulator steps and by many small gradient steps. Nothing in the algorithm layer may assume tokens, a vocabulary or a prompt.
 
 ## 2. The first target, and why this one
 
@@ -56,6 +60,23 @@ Exit criteria are fixed here, before building. Each milestone is a separate chan
 
 **R4. The loop end to end on cancho-gpu.** R1's experiment with R2's step and R3's rollouts. Exit: the held-out pass-rate curve within the spread of two R1 seeds at every checkpoint, and seconds per iteration and peak memory reported against R1's. If the rollouts are still the cost (they will be, section 6), the report says what fraction of an iteration they take.
 
+## 4b. The second track: small control policies for cancho-robot (an outline; milestones are fixed when the environment has been read)
+
+**Why it is worth having.** The measured wins of cancho-gpu over torch on MPS are on small networks, where launch overhead and fusion decide: the 60 M-parameter GPT step 15% faster, the MLP and CNN steps within a few percent either way, a CNN 1.6 times slower **[read: cancho-gpu `docs/resident.md` sections 13 to 19]**. A control policy is a small network (an MLP, or a small CNN on camera frames) updated many times, so the regime is the one where cancho-gpu has something to show; whether it shows it for RL is not known.
+
+**First algorithm: PPO** (clipped surrogate, generalised advantage estimation, a value head sharing the trunk or a separate small network). It is the default baseline for continuous control; SAC or others are added only if PPO plus the task leaves a question they answer. **[open]**
+
+**The environment.** cancho-robot's simulator, which owns the dynamics and the reward. What `cancho-rl` needs from it is an interface of a few calls (reset with a seed, step with an action, observation and reward, a done flag, a way to run many environments in a batch). Whether `cancho-robot` offers that, in a form callable from a session driver at the speed an RL loop needs, is **[unknown]** and is the first thing to read for this track. If the simulator is slow, the milestones below measure that before they measure anything about learning.
+
+**Milestones (outline, exit criteria to be fixed before building each):**
+
+* **C0. The environment and its baseline.** A task in cancho-robot with a reward and a way to run it in batches; a random policy and a scripted policy scored. Exit: environment steps a second, the reward of both baselines with seeds, and a check that the reward cannot be earned by a degenerate behaviour (the control analogue of R0(c)).
+* **C1. A torch PPO reference.** Torch on MPS (or CPU, whichever is faster for these sizes), the same environment. Exit: the return after N environment steps above the scripted baseline's, with two seeds at least, or the negative result recorded.
+* **C2. The PPO update in a cancho-gpu session equals torch's.** One fixed batch of trajectories: the loss and every parameter gradient against C1's, then a short run whose return curve is within the spread of two torch seeds. This is the point where the small-network advantage, if any, is measured: seconds per update against torch's.
+* **C3. The loop end to end, with the simulator in the picture.** Report the fraction of wall time spent in the simulator, the policy forward, and the update. If the simulator dominates, the honest conclusion is that the update's speed does not matter for this task, and that is the result.
+
+The risks of section 7 apply with the changes the regime brings: reward hacking appears as the policy exploiting simulator quirks (sim-to-real caveats stay in cancho-robot's documents; no number from simulation here says anything about the real arm), and RL on small networks is noisy enough that fewer than two seeds is not an experiment.
+
 ## 5. The experiment, stated before it is run
 
 * **Model:** Qwen2.5-1.5B-Instruct is the first choice (the size M8 tuned and cancho-gpu trains in 19.4 GB); the 0.5B for fast iteration of the code. **[open]** the maintainer's call.
@@ -97,7 +118,9 @@ Inherited from cancho-gpu and cancho, because they work:
 2. Task source: all of cancho-code's eval tasks, or a subset with deterministic checkers only?
 3. Does R1 wait for M8's final result (the supervised baseline), or start from the base model now? (The M8 run is the first thing to finish; R0 and R1 do not depend on it.)
 4. Is a negative R1 result acceptable as the end of the project? (The design says yes: section 4, R1.)
+5. Is the control track (section 4b) wanted, and which cancho-robot task is the first one? It can start with C0 as soon as the simulator's batch interface has been read; it does not wait for the LLM track.
+6. Do the two tracks share a repository layout from the start (one `algo/` layer, one directory per track), or does the second track begin as a copy and get merged when the shared layer is clear? This design assumes the first.
 
 ## 10. Limits of this document
 
-Written from the documents and file names of cancho-gpu, not from running anything. The kernel contracts (the weighted loss, the adapters-off forward, the cost of merging adapters per iteration) and cancho-code's reward API are to be read, not assumed, before R0 and R2. All timing figures quoted are cancho-gpu's own, on one M4 Max; none was measured for RL.
+Written from the documents and file names of cancho-gpu, not from running anything. The kernel contracts (the weighted loss, the adapters-off forward, the cost of merging adapters per iteration) and cancho-code's reward API are to be read, not assumed, before R0 and R2. All timing figures quoted are cancho-gpu's own, on one M4 Max; none was measured for RL. The control track (section 4b) is an outline written without having read cancho-robot's simulator interface; its milestones are placeholders until that is read.
