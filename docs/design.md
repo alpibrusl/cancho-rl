@@ -162,3 +162,10 @@ Built (cancho, edition 9 for `exec_spawn_detached`): `lib/rl/text.cho` (file rea
 * **Python left in the package:** `scripts/crosscheck.py` and `scripts/oracles_py.py` only (comparison helpers). No Python builds, grades or trains.
 * **Not built:** `rl prompt` (print a task as a prompt for the policy), grid expansion in `task.spec` (cases are listed one per line, as the Python version generated them), the split rule in cancho (FNV-1a is decided, not coded), the other 166 tasks, and every later milestone. Dependencies on cancho-tools and cancho-stats are not taken yet.
 * **A process slip, recorded:** an unnecessary `git rm --cached -r .` staged the deletion of three tracked files; `git reset` restored the index, nothing was committed.
+
+## 16. `rl prompt`, `rl split` and the sampling script (2026-11-04)
+
+* **[measured]** `rl split TASKDIR` (FNV-1a 32 bit over the task name, mod 4 == 0 held out) gives 22 train and 12 held out; the same rule in Python (a comparison, in the gate) names the same 12 tasks. The 32-bit form is used because int overflow is an error in cancho, so a 64-bit FNV product cannot be computed without reducing it.
+* **[measured]** `rl prompt PRIMER TASKDIR` prints `prompts/primer.md`, the signature, the description, the examples and the reply instruction; the gate checks that no prompt contains a `case:` line.
+* **[unverified]** `scripts/sample.sh MODEL K OUTDIR` (mlx_lm as the model runner, the code block cut out with awk, each sample graded) was written and **not run**: an M8 training job (`m8_train.py`) held the GPU, and the working rule is one GPU job at a time. Whether `mlx_lm.generate --prompt` applies the chat template, and what a 1.5B model's output looks like, are unknown until it runs. The base pass rate of R0(b) is therefore still unmeasured.
+* **Expectation, stated before the run:** a base Qwen2.5 has never seen cancho, so with this primer the pass rate may be near 0 on the harder tasks. That is the "no signal" risk of section 7 and the reason to measure before writing 166 more tasks.
