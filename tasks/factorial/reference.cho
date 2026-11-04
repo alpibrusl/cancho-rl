@@ -1,0 +1,11 @@
+edition 7;
+
+fn factorial(n: int) -> [] int {
+    var r = 1;
+    var i = 2;
+    while i <= n {
+        r = r * i;
+        i = i + 1;
+    }
+    return r;
+}

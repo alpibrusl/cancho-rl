@@ -1,0 +1,11 @@
+edition 7;
+
+fn o_ones(n: int) -> [] int {
+    if n == 0 { return 0; }
+    return n % 2 + o_ones(n / 2);
+}
+
+fn o_is_power_of_two(n: int) -> [] bool {
+    if n <= 0 { return false; }
+    return o_ones(n) == 1;
+}

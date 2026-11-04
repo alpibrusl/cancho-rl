@@ -1,0 +1,5 @@
+edition 7;
+
+fn o_sum_squares_to(n: int) -> [] int {
+    return n * (n + 1) * (2 * n + 1) / 6;
+}

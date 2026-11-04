@@ -1,0 +1,11 @@
+edition 7;
+
+fn cube_root_floor(n: int) -> [] int {
+    var lo = 0;
+    var hi = 1000000;
+    while lo < hi {
+        let mid = lo + (hi - lo + 1) / 2;
+        if mid * mid * mid <= n { lo = mid; } else { hi = mid - 1; }
+    }
+    return lo;
+}

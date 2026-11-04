@@ -1,0 +1,7 @@
+edition 7;
+
+fn floor_div(a: int, b: int) -> [] int {
+    var q = a / b;
+    if a % b < 0 { q = q - 1; }
+    return q;
+}

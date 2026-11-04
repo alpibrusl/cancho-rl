@@ -1,0 +1,13 @@
+edition 7;
+
+fn o_is_prime(n: int) -> [] bool {
+    if n < 2 { return false; }
+    if n < 4 { return true; }
+    if n % 2 == 0 { return false; }
+    var d = 3;
+    while d * d <= n {
+        if n % d == 0 { return false; }
+        d = d + 2;
+    }
+    return true;
+}

@@ -1,0 +1,6 @@
+edition 7;
+
+fn o_floor_div(a: int, b: int) -> [] int {
+    let r = ((a % b) + b) % b;
+    return (a - r) / b;
+}

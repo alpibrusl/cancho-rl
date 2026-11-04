@@ -1,0 +1,11 @@
+edition 7;
+
+fn o_choose(n: int, k: int) -> [] int {
+    if k == 0 { return 1; }
+    return o_choose(n, k - 1) * (n - k + 1) / k;
+}
+
+fn o_binomial(n: int, k: int) -> [] int {
+    if k > n - k { return o_choose(n, n - k); }
+    return o_choose(n, k);
+}

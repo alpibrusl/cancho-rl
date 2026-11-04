@@ -1,0 +1,12 @@
+edition 7;
+
+fn o_is_perfect_square(n: int) -> [] bool {
+    if n < 0 { return false; }
+    if n == 0 { return true; }
+    var r = n;
+    if r > 1000001 { r = 1000001; }
+    while r * r > n {
+        r = (r + n / r) / 2;
+    }
+    return r * r == n;
+}

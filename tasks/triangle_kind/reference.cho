@@ -1,0 +1,12 @@
+edition 7;
+
+fn triangle_kind(a: int, b: int, c: int) -> [] int {
+    if a <= 0 || b <= 0 || c <= 0 { return 0; }
+    var big = a;
+    if b > big { big = b; }
+    if c > big { big = c; }
+    if big >= a + b + c - big { return 0; }
+    if a == b && b == c { return 1; }
+    if a == b || b == c || a == c { return 2; }
+    return 3;
+}

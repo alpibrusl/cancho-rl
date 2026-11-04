@@ -1,0 +1,6 @@
+edition 7;
+
+fn o_factorial(n: int) -> [] int {
+    if n <= 1 { return 1; }
+    return n * o_factorial(n - 1);
+}

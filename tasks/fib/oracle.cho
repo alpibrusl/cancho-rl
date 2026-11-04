@@ -1,0 +1,10 @@
+edition 7;
+
+fn o_fib_from(n: int, a: int, b: int) -> [] int {
+    if n == 0 { return a; }
+    return o_fib_from(n - 1, b, a + b);
+}
+
+fn o_fib(n: int) -> [] int {
+    return o_fib_from(n, 0, 1);
+}

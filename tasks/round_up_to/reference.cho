@@ -1,0 +1,7 @@
+edition 7;
+
+fn round_up_to(x: int, m: int) -> [] int {
+    let r = x % m;
+    if r == 0 { return x; }
+    return x + (m - r);
+}

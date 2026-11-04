@@ -1,0 +1,10 @@
+edition 7;
+
+fn median3(a: int, b: int, c: int) -> [] int {
+    var lo = a;
+    var hi = b;
+    if lo > hi { lo = b; hi = a; }
+    if c <= lo { return lo; }
+    if c >= hi { return hi; }
+    return c;
+}

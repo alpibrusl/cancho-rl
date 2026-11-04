@@ -8,3 +8,4 @@ Read [`docs/design.md`](docs/design.md) before writing anything: it fixes the fi
 - **One GPU job at a time**; check `pgrep`/`top` first; stop a run that swaps.
 - **Pin cancho-gpu by commit** and say in every result which commit produced it.
 - **No source file over 2,000 lines.**
+- **Pure cancho.** The package builds, grades and trains in cancho; Python may only compare with other frameworks (`scripts/`). `scripts/gate.sh` is the gate.

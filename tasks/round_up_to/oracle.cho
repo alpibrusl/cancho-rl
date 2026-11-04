@@ -1,0 +1,7 @@
+edition 7;
+
+fn o_round_up_to(x: int, m: int) -> [] int {
+    var q = x / m;
+    if q * m < x { q = q + 1; }
+    return q * m;
+}
