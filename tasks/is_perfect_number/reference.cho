@@ -1,0 +1,15 @@
+edition 7;
+
+fn is_perfect_number(n: int) -> [] bool {
+    if n < 2 { return false; }
+    var s = 1;
+    var d = 2;
+    while d * d <= n {
+        if n % d == 0 {
+            s = s + d;
+            if d * d != n { s = s + n / d; }
+        }
+        d = d + 1;
+    }
+    return s == n;
+}

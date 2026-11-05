@@ -1,0 +1,6 @@
+edition 7;
+
+fn o_next_power_of_two(n: int) -> [] int {
+    if n <= 1 { return 1; }
+    return 2 * o_next_power_of_two((n + 1) / 2);
+}

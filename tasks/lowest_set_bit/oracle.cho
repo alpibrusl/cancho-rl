@@ -1,0 +1,9 @@
+edition 7;
+
+fn o_lowest_set_bit(n: int) -> [] int {
+    var p = 1;
+    while n % (p * 2) == 0 {
+        p = p * 2;
+    }
+    return p;
+}

@@ -1,0 +1,11 @@
+edition 7;
+
+fn o_count_digit_occurrences(n: int, d: int) -> [] int {
+    if n < 10 {
+        if n == d { return 1; }
+        return 0;
+    }
+    var here = 0;
+    if n % 10 == d { here = 1; }
+    return here + o_count_digit_occurrences(n / 10, d);
+}

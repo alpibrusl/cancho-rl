@@ -1,0 +1,17 @@
+edition 7;
+
+fn count_primes_upto(n: int) -> [] int {
+    var count = 0;
+    var k = 2;
+    while k <= n {
+        var prime = true;
+        var d = 2;
+        while d < k && prime {
+            if k % d == 0 { prime = false; }
+            d = d + 1;
+        }
+        if prime { count = count + 1; }
+        k = k + 1;
+    }
+    return count;
+}

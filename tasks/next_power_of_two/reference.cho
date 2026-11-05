@@ -1,0 +1,9 @@
+edition 7;
+
+fn next_power_of_two(n: int) -> [] int {
+    var p = 1;
+    while p < n {
+        p = p * 2;
+    }
+    return p;
+}

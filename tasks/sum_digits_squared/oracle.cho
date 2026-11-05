@@ -1,0 +1,7 @@
+edition 7;
+
+fn o_sum_digits_squared(n: int) -> [] int {
+    if n == 0 { return 0; }
+    let d = n % 10;
+    return d * d + o_sum_digits_squared(n / 10);
+}

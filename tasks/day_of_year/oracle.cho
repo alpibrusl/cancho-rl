@@ -1,0 +1,20 @@
+edition 7;
+
+fn o_days_before(m: int) -> [] int {
+    if m == 1 { return 0; }
+    if m == 2 { return 31; }
+    if m == 3 { return 59; }
+    if m == 4 { return 90; }
+    if m == 5 { return 120; }
+    if m == 6 { return 151; }
+    if m == 7 { return 181; }
+    if m == 8 { return 212; }
+    if m == 9 { return 243; }
+    if m == 10 { return 273; }
+    if m == 11 { return 304; }
+    return 334;
+}
+
+fn o_day_of_year(m: int, d: int) -> [] int {
+    return o_days_before(m) + d;
+}

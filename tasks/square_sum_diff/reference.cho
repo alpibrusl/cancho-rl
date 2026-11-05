@@ -1,0 +1,13 @@
+edition 7;
+
+fn square_sum_diff(n: int) -> [] int {
+    var sum = 0;
+    var squares = 0;
+    var i = 1;
+    while i <= n {
+        sum = sum + i;
+        squares = squares + i * i;
+        i = i + 1;
+    }
+    return sum * sum - squares;
+}
