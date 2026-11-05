@@ -1,0 +1,8 @@
+edition 7;
+
+fn o_sign_product(a: int, b: int) -> [] int {
+    let p = a * b;
+    if p > 0 { return 1; }
+    if p < 0 { return 0 - 1; }
+    return 0;
+}

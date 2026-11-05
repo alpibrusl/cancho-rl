@@ -1,0 +1,7 @@
+edition 7;
+
+fn o_round_to_ten(n: int) -> [] int {
+    let last = n % 10;
+    if last >= 5 { return n - last + 10; }
+    return n - last;
+}

@@ -1,0 +1,6 @@
+edition 7;
+
+fn o_sum_cubes_to(n: int) -> [] int {
+    let s = n * (n + 1) / 2;
+    return s * s;
+}

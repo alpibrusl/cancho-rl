@@ -1,0 +1,10 @@
+edition 7;
+
+fn bulk_total(price: int, qty: int) -> [] int {
+    var total = price * qty;
+    if qty >= 10 {
+        let discount = total / 5;
+        total = total - discount;
+    }
+    return total;
+}
