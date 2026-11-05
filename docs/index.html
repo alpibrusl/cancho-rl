@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+<!--
+  The landing page, in the style of cancho-ml's (docs/assets/site.css and home.css are copied from there, unchanged). Hand-written.
+  Every number on it is copied from docs/design.md (sections 17 to 25) and every command output is a real run of build/rl;
+  nothing here is a promise about a result that has not been measured. R1 (the training run) is described as under way, with no figure.
+-->
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>cancho-rl: reinforcement learning with a grader that cannot be talked into a pass</title>
+<meta name="description" content="A reinforcement-learning toolkit written in cancho. The first instance trains a small language model to write cancho, with rewards from the compiler's own tests; the reward and its task set are measured before anything trains.">
+<meta name="robots" content="index, follow">
+<meta property="og:site_name" content="cancho-rl">
+<meta property="og:type" content="website">
+<meta property="og:title" content="cancho-rl: reinforcement learning with a trustworthy reward">
+<meta property="og:description" content="Rewards come from the compiler running a hidden oracle; hacking probes score zero; the set is measured before training starts.">
+<meta name="color-scheme" content="light dark">
+<link rel="stylesheet" href="assets/site.css">
+<link rel="stylesheet" href="assets/home.css">
+</head>
+<body class="home">
+<a class="skip" href="#main">Skip to content</a>
+<header class="top"><div class="wrap">
+  <a class="brand" href="./">cancho-rl</a>
+  <nav aria-label="Site">
+    <a href="#how" class="opt">How it works</a><a href="#examples">Examples</a><a href="#uses" class="opt">Use cases</a><a href="#results" class="opt">Measured</a><a href="https://github.com/alpibrusl/cancho-rl">Repository</a>
+  </nav>
+</div></header>
+
+<main id="main">
+
+<div class="wrap hero">
+  <div>
+    <p class="eyebrow">reinforcement learning · written in cancho</p>
+    <h1>Train on a reward you have already tried to cheat.</h1>
+    <p class="sub">cancho-rl grades a program the way a test suite would: the compiler builds it, runs it against a hidden oracle, and returns a number. The reward and the task set are measured first. Only then does a model train on them.</p>
+    <div class="cta"><a class="btn primary" href="#examples">See it run</a><a class="btn" href="#try">Try it</a></div>
+  </div>
+  <div class="machine" aria-hidden="false">
+<svg viewBox="0 0 560 330" role="img" aria-labelledby="mc-t mc-d">
+<title id="mc-t">A model writes a program; the grader builds it, runs it against an oracle and returns a reward; a cheating program scores zero</title>
+<desc id="mc-d">A task goes to the policy, which samples programs. Each program goes to the grader, which compiles it with cancho test against the oracle's cases and returns passed over total. Below, a program that always returns zero is graded and receives almost nothing.</desc>
+<line class="belt" x1="20" y1="130" x2="540" y2="130"/>
+<rect class="box" x="10" y="40" width="80" height="50" rx="10"/><text x="50" y="70" text-anchor="middle">task</text>
+<rect class="box" x="130" y="70" width="110" height="120" rx="12"/><text x="185" y="100" text-anchor="middle">policy</text><text class="sm" x="185" y="170" text-anchor="middle">8 samples</text>
+<rect class="box" x="270" y="70" width="110" height="120" rx="12"/><text x="325" y="100" text-anchor="middle">grader</text><text class="sm" x="325" y="170" text-anchor="middle">cancho test</text>
+<rect class="okb" x="420" y="60" width="130" height="140" rx="12"/><text x="485" y="92" text-anchor="middle">reward</text><text class="sm" x="485" y="140" text-anchor="middle">passed / of</text>
+<rect class="nob" x="40" y="226" width="250" height="82" rx="10"/><text class="sm" x="54" y="250" style="fill:var(--bad)">probe · always returns 0</text><text class="sm" x="54" y="270">1 case of 91 passes</text><text class="sm" x="54" y="290">not solved, reward 0.011</text>
+<path d="M290 267H340" stroke="var(--good)" stroke-width="2" fill="none"/><rect class="okb" x="340" y="248" width="150" height="40" rx="8"/><text class="sm" x="415" y="272" text-anchor="middle">the gate watches it</text>
+</svg></div>
+</div>
+
+<div class="wrap">
+<h2 class="sr">What it does</h2>
+<div class="trio">
+  <div class="card"><div class="art"><div class="say"><span class="e">{"status":"build_error"}</span><span class="f">reward 0.0, solved false</span></div></div><h3>A broken program is a reward</h3><p>Anything the candidate does wrong, a syntax error, a trap, a hang, is a status and a zero. It is never a crash of the trainer.</p></div>
+  <div class="card"><div class="art"><div class="say"><span class="e">side: heldout</span><span class="f">FNV-1a 32 of the name, mod 4 == 0</span></div></div><h3>A split nobody can tune on</h3><p>Which tasks are held out is a function of the task's name, so adding a task never moves another across. The prompt never carries a hidden case.</p></div>
+  <div class="card"><div class="art"><div class="say"><span class="e">stats ci boot</span><span class="f">over tasks, not samples</span></div></div><h3>Intervals from the sibling tools</h3><p>Rates come with a bootstrap interval from cancho-stats; the unit is the task, because a task's eight samples are not independent draws.</p></div>
+</div>
+</div>
+
+<section class="sec" id="how"><div class="wrap">
+  <h2>How it works</h2>
+  <p class="lead">Six seams: policy, environment, rollout, estimator, objective, evaluator. The first instance fills them for a language model that writes cancho; a control instance comes second, and a shared layer is extracted only when the second one starts.</p>
+  <div class="cards">
+    <div class="card"><h3>1. A task</h3><p>A directory: <code>task.spec</code> (the signature, a description, three public examples, the hidden cases), an <code>oracle.cho</code> and a <code>reference.cho</code>. 104 so far, each tagged <code>branch</code> or <code>loop</code> by a mechanical rule the gate re-checks.</p></div>
+    <div class="card"><h3>2. A grader</h3><p><code>rl grade</code> wraps the candidate and the oracle into one test file, runs <code>cancho test</code> under a wall deadline that kills the whole process group, and prints one JSON line.</p></div>
+    <div class="card"><h3>3. A gate</h3><p>Every reference must solve its task; every probe must score what it should; for the first 34 tasks an independent Python port of the oracles must agree. A check counts only after it has been watched failing once.</p></div>
+  </div>
+</div></section>
+
+<section class="sec" id="examples"><div class="wrap">
+  <h2>Examples</h2>
+  <p class="lead">Real runs of <code>build/rl</code> on the tasks in this repository.</p>
+  <div class="plabel">A task, as the model sees it and as the grader holds it</div>
+<pre class="screen" tabindex="0"><span class="d"># tasks/count_halvings/task.spec (the first eight lines; 20 hidden cases follow)</span>
+<span>name: count_halvings</span>
+<span>ret: int</span>
+<span>kind: loop</span>
+<span>sig: fn count_halvings(n: int) -&gt; [] int</span>
+<span>desc: How many times n can be divided by 2 (whole-number division, dropping any remainder) before it reaches 1. count_halvings(9) is 3: 9 to 4 to 2 to 1. Domain: 1 &lt;= n &lt;= 1000000000.</span>
+<span>example: count_halvings(8) == 3</span>
+<span>example: count_halvings(1) == 0</span>
+<span>example: count_halvings(9) == 3</span>
+<span class="d"># the prompt carries the signature, the description and the three examples, never a case: and the gate checks that</span>
+<span class="a">$ rl prompt prompts/primer.md tasks/count_halvings | grep -c 'case:'</span>
+<span>0</span></pre>
+  <div class="plabel">Grading: a solution, a constant, and a syntax error</div>
+<pre class="screen" tabindex="0"><span class="a">$ rl grade cancho tasks/count_halvings tasks/count_halvings/reference.cho work/x.cho</span>
+<span class="g">{"id":"count_halvings","passed":20,"of":20,"reward":1.0,"solved":true,"status":"ok","detail":""}</span>
+<span class="d"># a program that always returns 0 passes the one case whose answer is 0, and earns 1/91</span>
+<span class="a">$ rl grade cancho tasks/fib probes/const_zero.cho work/x.cho</span>
+<span>{"id":"fib","passed":1,"of":91,"reward":0.01098901098901099,"solved":false,"status":"ok","detail":""}</span>
+<span class="a">$ rl grade cancho tasks/fib probes/garbage.cho work/x.cho</span>
+<span>{"id":"fib","passed":0,"of":91,"reward":0.0,"solved":false,"status":"build_error","detail":"work/x.cho:4:1: error: expected `fn`, `extern`, `struct`, `enum` or `static`, found an identifier"}</span></pre>
+  <div class="plabel">A program that runs away</div>
+<pre class="screen" tabindex="0"><span class="d"># fib calls itself forever: the stack overflow is a trap in each case, not a hang and not a crash of the grader</span>
+<span class="a">$ rl grade cancho tasks/fib probes/deep_recursion.cho work/x.cho</span>
+<span>{"id":"fib","passed":0,"of":91,"reward":0.0,"solved":false,"status":"ok","detail":""}</span>
+<span class="d"># 0.7 s of wall time and 36 MB at most; a candidate has no heap effect to grow with</span></pre>
+  <div class="plabel">Rates per kind and side, then one row per task</div>
+<pre class="screen" tabindex="0"><span class="a">$ rl report tasks probes/report_fixture.jsonl</span>
+<span>{"group":"branch/train","tasks":1,"samples":2,"solved":1,"rate":0.5,"zero":0,"window":1,"high":0}</span>
+<span>{"group":"loop/train","tasks":1,"samples":3,"solved":0,"rate":0.0,"zero":1,"window":0,"high":0}</span>
+<span>{"group":"all","tasks":2,"samples":5,"solved":1,"rate":0.2,"zero":1,"window":1,"high":0}</span>
+<span class="a">$ rl tasks tasks probes/report_fixture.jsonl</span>
+<span>task,kind,side,samples,solved,rate</span>
+<span>abs_val,branch,train,2,1,0.500000</span>
+<span>gcd,loop,train,3,0,0.000000</span></pre>
+</div></section>
+
+<section class="sec" id="uses"><div class="wrap">
+  <h2>Use cases</h2>
+  <p class="lead">One is built and being measured. The others are designed, not built; each says what it is waiting for.</p>
+  <div class="cards">
+    <div class="card"><h3>A small model that writes cancho</h3><p><b>Built, R1 under way.</b> GRPO with LoRA on Qwen2.5-1.5B-Instruct. The reward is the compiler's own verdict, so it improves exactly what the language tooling already measures. A torch/peft reference run comes first; a cancho-gpu run must equal it before it is trusted.</p></div>
+    <div class="card"><h3>Auditing any reward before training</h3><p><b>Built.</b> The grader, the probes and the gate are reusable on their own: point <code>rl grade</code> at any task directory and see whether an empty program, a constant, an early exit or a mutant earns anything. If it does, the reward is wrong, and you learn that before a GPU hour is spent.</p></div>
+    <div class="card"><h3>A control task on a simulator</h3><p><b>Designed.</b> The cancho-afm digital twin (a board, a plant, a PID loop, about one second a run) is the second instance, with the controller's gains as the policy. The grader there is a measurement of the twin, not of the instrument, and the design says so. Waiting on <a href="https://github.com/alpibrusl/cancho-afm/issues/31">cancho-afm#31</a>.</p></div>
+    <div class="card"><h3>Learning inside a safety envelope</h3><p><b>Designed.</b> cancho-robot's kinematics and safety rules fix the bounds; what learns cannot change them. There is no simulator yet, so nothing here is claimed. Waiting on <a href="https://github.com/alpibrusl/cancho-robot/issues/41">cancho-robot#41</a>.</p></div>
+  </div>
+</div></section>
+
+<section class="sec" id="results"><div class="wrap">
+  <h2>Measured, not promised</h2>
+  <p class="lead">The untrained Qwen2.5-1.5B-Instruct, eight samples per task, 95% bootstrap intervals over tasks, on the first 80 tasks. Loop tasks are the hard side.</p>
+  <div class="nums">
+    <div class="n"><b>104</b><span>tasks, each solved by its own reference in the gate (34 also cross-checked against an independent Python port)</span></div>
+    <div class="n"><b>23.1%</b><span>base solve rate over 80 tasks, interval 17.3 to 29.7%</span></div>
+    <div class="n"><b>41% / 13%</b><span>branch tasks against loop tasks on the train side, 17 and 40 tasks</span></div>
+    <div class="n"><b>36 MB</b><span>peak memory of a program that recurses forever, graded in 0.7 s</span></div>
+  </div>
+  <p class="fine">Known limits: the CPU limit (<code>ulimit -t</code>) does not stop a runaway on macOS, so the wall deadline is what works; 38 of the 104 tasks are at zero for the base model and carry no training signal yet; the intervals describe these hand-written tasks only. The full tables are in <a href="https://github.com/alpibrusl/cancho-rl/blob/main/docs/design.md">docs/design.md</a>, sections 17 to 25.</p>
+</div></section>
+
+<section class="sec" id="try"><div class="wrap">
+  <h2>Try it</h2>
+  <p class="lead">Build it from source. You need <code>git</code>, Rust and the cancho compiler; sampling a model also needs <code>mlx_lm</code> on Apple silicon.</p>
+<pre class="code" tabindex="0"><code>git clone https://github.com/alpibrusl/cancho                    # the compiler
+git clone https://github.com/alpibrusl/cancho-rl &amp;&amp; cd cancho-rl
+(cd ../cancho &amp;&amp; cargo build -p cancho)
+export CANCHO=$PWD/../cancho/target/debug/cancho
+scripts/gate.sh                                              # builds build/rl, grades every reference and probe
+scripts/tools.sh                                             # optional: cancho-stats and cancho-tools, pinned
+scripts/sample.sh Qwen/Qwen2.5-1.5B-Instruct 8 work/s1       # sample and grade; one GPU job at a time</code></pre>
+  <p class="fine">The command line is <code>rl grade | split | prompt | report | tasks</code>. Every refusal has a rule tag: <code>rl.usage</code>, <code>rl.task</code>, <code>rl.input</code>.</p>
+</div></section>
+
+</main>
+
+<footer><div class="wrap">
+  <span class="brandline">cancho-rl</span><span>written in <a href="https://github.com/alpibrusl/cancho">cancho</a></span>
+  <a href="https://github.com/alpibrusl/cancho-rl">Repository</a><a href="https://github.com/alpibrusl/cancho-rl/blob/main/docs/design.md">Design</a><a href="https://github.com/alpibrusl/cancho-ml">cancho-ml</a>
+</div></footer>
+</body>
+</html>
