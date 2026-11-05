@@ -87,14 +87,14 @@ An RL run is the same loop whatever the policy is: *sample actions from the poli
 |---|---|---|---|
 | **Policy** | `act(observation, seed) -> action, logprob`; `logprob(observation, action)`; `step(weights)`; adapter or parameter state to save and restore | Qwen with LoRA on cancho-gpu; an action is a completion (tokens) | an MLP or small CNN; an action is a vector |
 | **Environment** | a named, seeded instance: `reset(seed) -> observation`, `step(action) -> observation, reward, done`; a one-shot environment is the special case of one step | a task from `tasks/<id>`; one step, the completion is the program; the reward is the grader's | a cancho-robot scene, many steps |
-| **Rollout** | runs a batch of policy-environment episodes, records `(observation, action, logprob, reward, done)` | a sampling script (`scripts/sample.sh` in PR #3; not yet run) | simulator batch |
+| **Rollout** | runs a batch of policy-environment episodes, records `(observation, action, logprob, reward, done)` | a sampling script (`scripts/sample.sh`, run in section 17) | simulator batch |
 | **Estimator** | rewards of a group or trajectory to advantages: leave-one-out group baseline (GRPO), GAE (PPO) | group-relative, per task | GAE with a value head |
 | **Objective** | advantages and logprobs to a weighted log-probability loss, with clipping and the KL term | token-level, masked to the completion | per-step |
 | **Evaluator** | held-out instances, seeds, interval | pass rate at k samples, bootstrap interval | return over seeds, bootstrap interval |
 
 Nothing above the line between Policy/Environment and the rest may assume tokens, a vocabulary, a prompt, a sandbox, or that a reward lies in [0, 1].
 
-**What the code written so far is, said plainly [read from this repository: PR #2, merged, and PR #3, open at this date, which holds `rl split`, `rl prompt`, `prompts/primer.md`, `scripts/sample.sh` and design section 16]:**
+**What the code written so far is, said plainly [read from this repository: PR #2 and PR #3, both merged, the second holding `rl split`, `rl prompt`, `prompts/primer.md`, `scripts/sample.sh` and design section 16]:**
 
 * **Generic already, and worth extracting later:** the held-out split rule (FNV-1a over an instance name, `tools/rl/main.cho`: `fnv`, `is_heldout`; it needs only a name); the reward record's shape `{id, reward, solved, status}`; the rule that a failure of the thing under test is a reward and never a failure of the trainer; the rule that a gate probe (an input that must score a known value) exists for every reward.
 * **LLM-only, and staying in the LLM instance:** `lib/rl/grade.cho` (composes a test module from a candidate *program* and an oracle, runs `cancho test` under a deadline: the sandbox exists because the policy's output is untrusted code, which a control policy's is not), `rl prompt`, `prompts/primer.md`, `tasks/`, `scripts/sample.sh`.
