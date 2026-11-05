@@ -1,5 +1,6 @@
 name: gcd
 ret: int
+kind: loop
 sig: fn gcd(a: int, b: int) -> [] int
 desc: The greatest common divisor of a and b. gcd(a, 0) is a, and gcd(0, 0) is 0. Domain: 0 <= a, b <= 1000000000.
 example: gcd(12, 18) == 6

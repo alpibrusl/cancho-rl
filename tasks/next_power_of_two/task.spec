@@ -1,5 +1,6 @@
 name: next_power_of_two
 ret: int
+kind: loop
 sig: fn next_power_of_two(n: int) -> [] int
 desc: The smallest power of two that is greater than or equal to n (1 is a power of two). Domain: 1 <= n <= 1000000000.
 example: next_power_of_two(5) == 8

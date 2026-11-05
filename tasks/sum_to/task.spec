@@ -1,5 +1,6 @@
 name: sum_to
 ret: int
+kind: branch
 sig: fn sum_to(n: int) -> [] int
 desc: 1 + 2 + ... + n, and 0 when n is 0. Domain: 0 <= n <= 4000000000, so the answer fits an int but a loop of that length is far too slow: use the formula.
 example: sum_to(0) == 0

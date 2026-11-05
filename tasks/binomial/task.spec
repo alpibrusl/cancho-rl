@@ -1,5 +1,6 @@
 name: binomial
 ret: int
+kind: loop
 sig: fn binomial(n: int, k: int) -> [] int
 desc: The binomial coefficient C(n, k): the number of ways to choose k items from n. Domain: 0 <= k <= n <= 40. C(n, 0) and C(n, n) are 1.
 example: binomial(0, 0) == 1

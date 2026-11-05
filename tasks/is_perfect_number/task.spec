@@ -1,5 +1,6 @@
 name: is_perfect_number
 ret: bool
+kind: loop
 sig: fn is_perfect_number(n: int) -> [] bool
 desc: True when n equals the sum of its proper divisors (the divisors smaller than n, 1 included). 6 = 1 + 2 + 3 is perfect; 1 is not. Domain: 1 <= n <= 10000.
 example: is_perfect_number(6) == true

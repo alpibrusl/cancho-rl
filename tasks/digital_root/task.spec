@@ -1,5 +1,6 @@
 name: digital_root
 ret: int
+kind: loop
 sig: fn digital_root(n: int) -> [] int
 desc: Add the decimal digits of n, repeat on the result until a single digit is left, and return it. digital_root(0) is 0 and digital_root(493193) is 2 (4+9+3+1+9+3 = 29, 2+9 = 11, 1+1 = 2). Domain: 0 <= n <= 9223372036854775807.
 example: digital_root(0) == 0

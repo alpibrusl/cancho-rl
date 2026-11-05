@@ -1,5 +1,6 @@
 name: factorial
 ret: int
+kind: loop
 sig: fn factorial(n: int) -> [] int
 desc: n! = 1 * 2 * ... * n, with 0! = 1. Domain: 0 <= n <= 20 (20! fits an int; overflow is an error, not a wrap).
 example: factorial(0) == 1

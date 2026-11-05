@@ -1,5 +1,6 @@
 name: catalan
 ret: int
+kind: loop
 sig: fn catalan(n: int) -> [] int
 desc: The n-th Catalan number: 1, 1, 2, 5, 14, 42, ... where C(0) = 1 and C(n) is the sum over i from 0 to n-1 of C(i) * C(n-1-i). Domain: 0 <= n <= 15.
 example: catalan(0) == 1

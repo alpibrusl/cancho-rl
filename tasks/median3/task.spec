@@ -1,5 +1,6 @@
 name: median3
 ret: int
+kind: branch
 sig: fn median3(a: int, b: int, c: int) -> [] int
 desc: The median of the three arguments: the value that is left in the middle when they are sorted. Ties are fine: median3(2, 2, 9) is 2. Any int.
 example: median3(-5, -5, -5) == -5

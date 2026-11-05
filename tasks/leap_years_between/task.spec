@@ -1,5 +1,6 @@
 name: leap_years_between
 ret: int
+kind: loop
 sig: fn leap_years_between(a: int, b: int) -> [] int
 desc: How many years from a to b, both included, are leap years in the Gregorian calendar (divisible by 4, except years divisible by 100 that are not divisible by 400). Domain: 1 <= a <= b <= 3000.
 example: leap_years_between(2000, 2004) == 2

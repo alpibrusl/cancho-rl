@@ -1,5 +1,6 @@
 name: sign
 ret: int
+kind: branch
 sig: fn sign(x: int) -> [] int
 desc: The sign of x: -1 if x is negative, 0 if x is zero, 1 if x is positive. Any int, including the extremes.
 example: sign(-1000000000) == -1

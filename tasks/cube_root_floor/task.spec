@@ -1,5 +1,6 @@
 name: cube_root_floor
 ret: int
+kind: loop
 sig: fn cube_root_floor(n: int) -> [] int
 desc: The largest r with r * r * r <= n. Domain: 0 <= n <= 1000000000000000000.
 example: cube_root_floor(0) == 0

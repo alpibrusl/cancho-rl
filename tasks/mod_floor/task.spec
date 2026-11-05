@@ -1,5 +1,6 @@
 name: mod_floor
 ret: int
+kind: branch
 sig: fn mod_floor(a: int, b: int) -> [] int
 desc: The remainder of a divided by b that is never negative: always in 0..b-1, even when a is negative (mod_floor(-1, 5) is 4). Domain: |a| <= 1000000000000 and 1 <= b <= 1000000000.
 example: mod_floor(-1000000000000, 1) == 0

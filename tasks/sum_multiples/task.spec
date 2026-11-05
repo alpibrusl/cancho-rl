@@ -1,5 +1,6 @@
 name: sum_multiples
 ret: int
+kind: loop
 sig: fn sum_multiples(n: int) -> [] int
 desc: The sum of all positive whole numbers below n that are multiples of 3 or of 5 (a number that is both is counted once). Domain: 0 <= n <= 100000.
 example: sum_multiples(10) == 23

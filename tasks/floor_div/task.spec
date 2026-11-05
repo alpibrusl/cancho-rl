@@ -1,5 +1,6 @@
 name: floor_div
 ret: int
+kind: branch
 sig: fn floor_div(a: int, b: int) -> [] int
 desc: a divided by b, rounded toward negative infinity: floor_div(7, 2) is 3, floor_div(-7, 2) is -4. Domain: |a| <= 1000000000000 and 1 <= b <= 1000000000.
 example: floor_div(-1000000000000, 1) == -1000000000000

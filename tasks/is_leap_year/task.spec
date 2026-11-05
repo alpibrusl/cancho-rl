@@ -1,5 +1,6 @@
 name: is_leap_year
 ret: bool
+kind: branch
 sig: fn is_leap_year(y: int) -> [] bool
 desc: True when y is a leap year in the Gregorian calendar: divisible by 4, except years divisible by 100 that are not divisible by 400. Domain: 1 <= y <= 3000.
 example: is_leap_year(2024) == true

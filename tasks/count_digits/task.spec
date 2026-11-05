@@ -1,5 +1,6 @@
 name: count_digits
 ret: int
+kind: loop
 sig: fn count_digits(n: int) -> [] int
 desc: How many decimal digits n has. Domain: 0 <= n <= 9223372036854775807. count_digits(0) is 1.
 example: count_digits(0) == 1

@@ -1,0 +1,147 @@
+edition 9;
+
+module rl.report;
+
+// The per-kind, per-side report (docs/design.md section 20): results.jsonl files written by `rl grade` in, counts per group out.
+//
+// A "task" here is a maximal run of lines with the same id (sample.sh writes a task's samples together), so a task named in two files counts
+// twice. The groups are branch/train, branch/heldout, loop/train, loop/heldout, and all; each has six counters:
+// tasks, samples, solved, tasks at zero, tasks in the window (solve rate above 0 and at most 0.7), tasks above it.
+
+import rl.grade;
+import rl.side;
+import rl.text;
+import std.buffer;
+import std.bytes;
+import std.vec;
+
+pub fn group_count() -> [] int {
+    return 5;
+}
+
+pub fn group_name(g: int) -> [] &static [byte] {
+    if g == 0 {
+        return "branch/train";
+    }
+    if g == 1 {
+        return "branch/heldout";
+    }
+    if g == 2 {
+        return "loop/train";
+    }
+    if g == 3 {
+        return "loop/heldout";
+    }
+    return "all";
+}
+
+// The counters, all zero.
+pub fn counters[&h](heap: &!h Heap) -> [heap] vec.Vec[int] {
+    var c = vec.empty(heap, 30, 0);
+    var i = 0;
+    while i < 30 {
+        c = vec.push(heap, c, 0);
+        i = i + 1;
+    }
+    return c;
+}
+
+fn bump[&c](c: &!c vec.Vec[int], g: int, samples: int, solved: int) -> [] int {
+    let base = g * 6;
+    vec.set(c, base, vec.get(c, base) + 1);
+    vec.set(c, base + 1, vec.get(c, base + 1) + samples);
+    vec.set(c, base + 2, vec.get(c, base + 2) + solved);
+    var slot = 5;
+    if solved == 0 {
+        slot = 3;
+    } else if solved * 10 <= 7 * samples {
+        slot = 4;
+    }
+    vec.set(c, base + slot, vec.get(c, base + slot) + 1);
+    return 0;
+}
+
+// One task's counts into its group and into "all". 0 ok; 1 the task has no readable task.spec; 2 its kind is neither branch nor loop.
+fn flush[&h, &f, &d, &n, &c](heap: &!h Heap, fs: &f Fs(""), dir: &d [byte], id: &n [byte], samples: int, solved: int, c: &!c vec.Vec[int]) -> [heap, fs_read(""), file_read] int {
+    var path = buffer.append(heap, buffer.empty(heap, 64), dir);
+    path = buffer.push(heap, path, byte_of(47));
+    path = buffer.append(heap, path, id);
+    path = buffer.append(heap, path, "/task.spec");
+    var status = 0;
+    borrow path as &pb in {
+        let (spec, failed) = text.read_file(heap, fs, buffer.bytes(pb));
+        if failed != 0 {
+            status = 1;
+        } else {
+            borrow spec as &sb in {
+                let kind = grade.spec_value(buffer.bytes(sb), "kind:");
+                var k = 0 - 1;
+                if bytes.equal(kind, "branch") {
+                    k = 0;
+                } else if bytes.equal(kind, "loop") {
+                    k = 1;
+                }
+                if k < 0 {
+                    status = 2;
+                } else {
+                    var held = 0;
+                    if side.is_heldout(grade.spec_value(buffer.bytes(sb), "name:")) {
+                        held = 1;
+                    }
+                    bump(c, k * 2 + held, samples, solved);
+                    bump(c, 4, samples, solved);
+                }
+            }
+        }
+        buffer.drop(heap, spec);
+    }
+    buffer.drop(heap, path);
+    return status;
+}
+
+// Add the results file at `results` to `c`. 0 ok; 1 or 2 as `flush`; 3 the results file cannot be read.
+pub fn tally[&h, &f, &d, &r, &c](heap: &!h Heap, fs: &f Fs(""), dir: &d [byte], results: &r [byte], c: &!c vec.Vec[int]) -> [heap, fs_read(""), file_read] int {
+    let (file, failed) = text.read_file(heap, fs, results);
+    var status = 0;
+    if failed != 0 {
+        status = 3;
+    } else {
+        borrow file as &fb in {
+            let all = buffer.bytes(fb);
+            let lines = text.line_count(all);
+            var cur = all[0..0];
+            var n = 0;
+            var s = 0;
+            var k = 1;
+            while k <= lines && status == 0 {
+                let ln = text.line(all, k);
+                k = k + 1;
+                let at = bytes.find(ln, "\"id\":\"");
+                if at >= 0 {
+                    let rest = ln[at + 6..len(ln)];
+                    let e = bytes.find(rest, "\"");
+                    if e > 0 {
+                        let id = rest[0..e];
+                        if !bytes.equal(id, cur) {
+                            if n > 0 {
+                                status = flush(heap, fs, dir, cur, n, s, c);
+                            }
+                            cur = id;
+                            n = 0;
+                            s = 0;
+                        }
+                        n = n + 1;
+                        if bytes.find(ln, "\"solved\":true") >= 0 {
+                            s = s + 1;
+                        }
+                    }
+                }
+            }
+            if n > 0 && status == 0 {
+                status = flush(heap, fs, dir, cur, n, s, c);
+            }
+        }
+    }
+    buffer.drop(heap, file);
+    return status;
+}

@@ -1,5 +1,6 @@
 name: lcm
 ret: int
+kind: loop
 sig: fn lcm(a: int, b: int) -> [] int
 desc: The least common multiple of a and b: the smallest positive number both divide. Domain: 1 <= a, b <= 30000.
 example: lcm(4, 6) == 12

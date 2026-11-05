@@ -1,5 +1,6 @@
 name: sum_range
 ret: int
+kind: loop
 sig: fn sum_range(a: int, b: int) -> [] int
 desc: The sum of every whole number from a to b, both included. Domain: -1000 <= a <= b <= 1000.
 example: sum_range(1, 4) == 10

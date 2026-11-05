@@ -1,5 +1,6 @@
 name: digit_sum
 ret: int
+kind: loop
 sig: fn digit_sum(n: int) -> [] int
 desc: The sum of the decimal digits of n. Domain: 0 <= n <= 9223372036854775807. digit_sum(0) is 0.
 example: digit_sum(0) == 0

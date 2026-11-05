@@ -1,5 +1,6 @@
 name: hamming_bits
 ret: int
+kind: loop
 sig: fn hamming_bits(a: int, b: int) -> [] int
 desc: The number of bit positions where a and b differ in binary. Domain: 0 <= a, b <= 9223372036854775807.
 example: hamming_bits(0, 0) == 0

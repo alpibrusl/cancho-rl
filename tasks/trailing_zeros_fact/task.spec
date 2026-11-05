@@ -1,5 +1,6 @@
 name: trailing_zeros_fact
 ret: int
+kind: loop
 sig: fn trailing_zeros_fact(n: int) -> [] int
 desc: How many zeros the decimal form of n! (n factorial) ends with. Do not compute n!. Domain: 0 <= n <= 1000000000.
 example: trailing_zeros_fact(5) == 1

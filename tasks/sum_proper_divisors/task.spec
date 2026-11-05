@@ -1,5 +1,6 @@
 name: sum_proper_divisors
 ret: int
+kind: loop
 sig: fn sum_proper_divisors(n: int) -> [] int
 desc: The sum of the positive divisors of n that are smaller than n (1 included when n > 1). sum_proper_divisors(1) is 0. Domain: 1 <= n <= 100000.
 example: sum_proper_divisors(1) == 0

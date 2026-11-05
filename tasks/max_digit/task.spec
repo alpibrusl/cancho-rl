@@ -1,5 +1,6 @@
 name: max_digit
 ret: int
+kind: loop
 sig: fn max_digit(n: int) -> [] int
 desc: The largest decimal digit of n. max_digit(0) is 0. Domain: 0 <= n <= 1000000000.
 example: max_digit(1234) == 4

@@ -1,5 +1,6 @@
 name: square_sum_diff
 ret: int
+kind: loop
 sig: fn square_sum_diff(n: int) -> [] int
 desc: The square of the sum of 1..n minus the sum of the squares of 1..n. For n = 2: (1 + 2)^2 - (1 + 4) = 4. Domain: 0 <= n <= 100.
 example: square_sum_diff(2) == 4

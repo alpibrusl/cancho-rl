@@ -1,5 +1,6 @@
 name: tribonacci
 ret: int
+kind: loop
 sig: fn tribonacci(n: int) -> [] int
 desc: The n-th tribonacci number: T(0) = 0, T(1) = 0, T(2) = 1, and every later term is the sum of the three terms before it (so 0, 0, 1, 1, 2, 4, 7, 13, ...). Domain: 0 <= n <= 24.
 example: tribonacci(0) == 0

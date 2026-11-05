@@ -1,5 +1,6 @@
 name: is_palindrome_num
 ret: bool
+kind: loop
 sig: fn is_palindrome_num(n: int) -> [] bool
 desc: True when the decimal digits of n read the same forwards and backwards. Domain: 0 <= n <= 1000000000. 0 is a palindrome; 10 is not.
 example: is_palindrome_num(0) == true

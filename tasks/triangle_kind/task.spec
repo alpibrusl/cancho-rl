@@ -1,5 +1,6 @@
 name: triangle_kind
 ret: int
+kind: branch
 sig: fn triangle_kind(a: int, b: int, c: int) -> [] int
 desc: Classify a triangle with side lengths a, b, c: 0 when the sides cannot form a triangle (any side is not positive, or the longest side is at least the sum of the other two), 1 when all three sides are equal, 2 when exactly two are equal, 3 when all are different. Domain: all sides between -5 and 1000000000.
 example: triangle_kind(-5, -5, 2) == 0

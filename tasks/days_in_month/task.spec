@@ -1,5 +1,6 @@
 name: days_in_month
 ret: int
+kind: branch
 sig: fn days_in_month(year: int, month: int) -> [] int
 desc: The number of days in the given month (1 = January ... 12 = December) of the given year in the Gregorian calendar, February of a leap year having 29. Domain: 1 <= year <= 9999, 1 <= month <= 12.
 example: days_in_month(1, 1) == 31
