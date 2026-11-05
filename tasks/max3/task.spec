@@ -1,5 +1,6 @@
 name: max3
 ret: int
+kind: branch
 sig: fn max3(a: int, b: int, c: int) -> [] int
 desc: The largest of the three arguments. Any int.
 example: max3(-5, -5, -5) == -5

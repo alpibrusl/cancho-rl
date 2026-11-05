@@ -1,5 +1,6 @@
 name: pow_int
 ret: int
+kind: loop
 sig: fn pow_int(base: int, exp: int) -> [] int
 desc: base raised to exp. Domain: -10 <= base <= 10 and 0 <= exp <= 18, so the answer always fits an int. base^0 is 1 for every base, 0 included.
 example: pow_int(-10, 0) == 1

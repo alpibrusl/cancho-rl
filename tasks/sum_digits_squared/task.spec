@@ -1,5 +1,6 @@
 name: sum_digits_squared
 ret: int
+kind: loop
 sig: fn sum_digits_squared(n: int) -> [] int
 desc: The sum of the squares of the decimal digits of n. Domain: 0 <= n <= 1000000.
 example: sum_digits_squared(123) == 14

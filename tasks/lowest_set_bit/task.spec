@@ -1,5 +1,6 @@
 name: lowest_set_bit
 ret: int
+kind: loop
 sig: fn lowest_set_bit(n: int) -> [] int
 desc: The value of the lowest bit that is set in n: the largest power of two that divides n. lowest_set_bit(12) is 4. Domain: 1 <= n <= 1000000000.
 example: lowest_set_bit(12) == 4

@@ -1,5 +1,6 @@
 name: count_digit_occurrences
 ret: int
+kind: loop
 sig: fn count_digit_occurrences(n: int, d: int) -> [] int
 desc: How many times the decimal digit d appears in the decimal form of n. n = 0 has one digit, 0. Domain: 0 <= n <= 1000000000, 0 <= d <= 9.
 example: count_digit_occurrences(1213, 1) == 2

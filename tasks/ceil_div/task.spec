@@ -1,5 +1,6 @@
 name: ceil_div
 ret: int
+kind: branch
 sig: fn ceil_div(a: int, b: int) -> [] int
 desc: a divided by b, rounded up to the next whole number. Domain: 0 <= a <= 1000000000000 and 1 <= b <= 1000000000. ceil_div(0, 5) is 0.
 example: ceil_div(0, 1) == 0

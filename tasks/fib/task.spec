@@ -1,5 +1,6 @@
 name: fib
 ret: int
+kind: loop
 sig: fn fib(n: int) -> [] int
 desc: The n-th Fibonacci number with fib(0) = 0, fib(1) = 1, fib(2) = 1. Domain: 0 <= n <= 90 (fib(90) fits an int; computing past the answer can overflow).
 example: fib(0) == 0

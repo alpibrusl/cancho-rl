@@ -1,5 +1,6 @@
 name: int_sqrt
 ret: int
+kind: loop
 sig: fn int_sqrt(n: int) -> [] int
 desc: The largest whole number r with r * r <= n (the square root rounded down). Domain: 0 <= n <= 1000000000.
 example: int_sqrt(16) == 4

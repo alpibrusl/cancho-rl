@@ -1,5 +1,6 @@
 name: count_primes_upto
 ret: int
+kind: loop
 sig: fn count_primes_upto(n: int) -> [] int
 desc: How many prime numbers are less than or equal to n. count_primes_upto(1) is 0. Domain: 0 <= n <= 3000.
 example: count_primes_upto(10) == 4

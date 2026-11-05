@@ -1,5 +1,6 @@
 name: min3
 ret: int
+kind: branch
 sig: fn min3(a: int, b: int, c: int) -> [] int
 desc: The smallest of the three numbers. Domain: -100 <= a, b, c <= 100.
 example: min3(3, 1, 2) == 1

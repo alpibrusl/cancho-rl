@@ -1,5 +1,6 @@
 name: fizzbuzz_code
 ret: int
+kind: branch
 sig: fn fizzbuzz_code(n: int) -> [] int
 desc: For n >= 1: 15 when n is divisible by both 3 and 5, 3 when only by 3, 5 when only by 5, and 0 otherwise. Domain: 1 <= n <= 1000000000.
 example: fizzbuzz_code(1) == 0

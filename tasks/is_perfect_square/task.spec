@@ -1,5 +1,6 @@
 name: is_perfect_square
 ret: bool
+kind: loop
 sig: fn is_perfect_square(n: int) -> [] bool
 desc: True when n is the square of an integer. Negative numbers are not. Domain: -100 <= n <= 1000000000000.
 example: is_perfect_square(-100) == false

@@ -1,5 +1,6 @@
 name: is_odd
 ret: bool
+kind: branch
 sig: fn is_odd(n: int) -> [] bool
 desc: True when n is odd. Negative numbers count: -3 is odd. Domain: -1001 <= n <= 1001.
 example: is_odd(3) == true

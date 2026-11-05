@@ -1,5 +1,6 @@
 name: digit_product
 ret: int
+kind: loop
 sig: fn digit_product(n: int) -> [] int
 desc: The product of the decimal digits of n. digit_product(0) is 0. Domain: 0 <= n <= 1000000.
 example: digit_product(234) == 24

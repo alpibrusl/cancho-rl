@@ -1,5 +1,6 @@
 name: clamp
 ret: int
+kind: branch
 sig: fn clamp(x: int, lo: int, hi: int) -> [] int
 desc: x limited to the range lo..hi: lo when x is below it, hi when x is above it, otherwise x. Domain: -100 <= x <= 100, -100 <= lo <= hi <= 100.
 example: clamp(5, 0, 10) == 5

@@ -1,5 +1,6 @@
 name: collatz_steps
 ret: int
+kind: loop
 sig: fn collatz_steps(n: int) -> [] int
 desc: How many steps the Collatz process takes to reach 1 from n: if n is even halve it, otherwise replace it with 3n + 1, counting each step. collatz_steps(1) is 0. Domain: 1 <= n <= 1000000.
 example: collatz_steps(1) == 0

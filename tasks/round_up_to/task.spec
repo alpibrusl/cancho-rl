@@ -1,5 +1,6 @@
 name: round_up_to
 ret: int
+kind: branch
 sig: fn round_up_to(x: int, m: int) -> [] int
 desc: The smallest multiple of m that is at least x. Domain: 0 <= x <= 1000000000000 and 1 <= m <= 1000000. round_up_to(0, 8) is 0 and round_up_to(16, 8) is 16.
 example: round_up_to(0, 1) == 0

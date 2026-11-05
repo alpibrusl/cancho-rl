@@ -1,5 +1,6 @@
 name: abs_val
 ret: int
+kind: branch
 sig: fn abs_val(x: int) -> [] int
 desc: The absolute value of x: x when it is zero or positive, otherwise -x. Domain: -1000000 <= x <= 1000000.
 example: abs_val(-5) == 5

@@ -1,0 +1,20 @@
+edition 9;
+
+module rl.side;
+
+// The train and held-out split (docs/design.md section 14): a function of the task name alone, so a task never changes side when others are added.
+
+// FNV-1a, 32 bits, over the task id: int overflow is an error here, so the product is reduced each step.
+pub fn fnv[&n](name: &n [byte]) -> [] int {
+    var h = 2166136261;
+    var i = 0;
+    while i < len(name) {
+        h = ((h ^ int_of(name[i])) * 16777619) % 4294967296;
+        i = i + 1;
+    }
+    return h;
+}
+
+pub fn is_heldout[&n](name: &n [byte]) -> [] bool {
+    return fnv(name) % 4 == 0;
+}

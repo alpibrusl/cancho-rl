@@ -1,5 +1,6 @@
 name: abs_diff
 ret: int
+kind: branch
 sig: fn abs_diff(a: int, b: int) -> [] int
 desc: The absolute difference |a - b|. Domain: |a| and |b| are at most 1000000000.
 example: abs_diff(-1000000000, -2) == 999999998

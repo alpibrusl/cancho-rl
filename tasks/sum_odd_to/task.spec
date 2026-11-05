@@ -1,5 +1,6 @@
 name: sum_odd_to
 ret: int
+kind: loop
 sig: fn sum_odd_to(n: int) -> [] int
 desc: The sum of the odd numbers from 1 up to n (n included when it is odd). sum_odd_to(0) is 0. Domain: 0 <= n <= 10000.
 example: sum_odd_to(5) == 9

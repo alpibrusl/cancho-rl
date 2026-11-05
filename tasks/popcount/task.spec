@@ -1,5 +1,6 @@
 name: popcount
 ret: int
+kind: loop
 sig: fn popcount(n: int) -> [] int
 desc: How many 1 bits n has in binary. Domain: 0 <= n <= 9223372036854775807.
 example: popcount(0) == 0

@@ -1,5 +1,6 @@
 name: bit_length
 ret: int
+kind: loop
 sig: fn bit_length(n: int) -> [] int
 desc: How many binary digits n needs: 1 for 1, 2 for 2 and 3, 3 for 4 to 7, and 0 for 0. Domain: 0 <= n <= 9223372036854775807.
 example: bit_length(0) == 0

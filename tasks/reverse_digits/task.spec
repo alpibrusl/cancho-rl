@@ -1,5 +1,6 @@
 name: reverse_digits
 ret: int
+kind: loop
 sig: fn reverse_digits(n: int) -> [] int
 desc: The decimal digits of n in reverse order, as a number: 1230 becomes 321 (leading zeros vanish). Domain: 0 <= n <= 1000000000.
 example: reverse_digits(0) == 0

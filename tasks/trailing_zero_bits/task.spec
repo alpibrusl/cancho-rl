@@ -1,5 +1,6 @@
 name: trailing_zero_bits
 ret: int
+kind: loop
 sig: fn trailing_zero_bits(n: int) -> [] int
 desc: How many times 2 divides n, i.e. the number of zero bits at the end of n in binary. Domain: 1 <= n <= 1000000000000.
 example: trailing_zero_bits(8) == 3

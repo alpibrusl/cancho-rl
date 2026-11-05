@@ -1,5 +1,6 @@
 name: is_prime
 ret: bool
+kind: loop
 sig: fn is_prime(n: int) -> [] bool
 desc: True when n is a prime number. 0, 1 and negative numbers are not prime. Domain: -10 <= n <= 1000000.
 example: is_prime(-10) == false

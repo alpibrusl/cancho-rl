@@ -1,5 +1,6 @@
 name: is_power_of_two
 ret: bool
+kind: loop
 sig: fn is_power_of_two(n: int) -> [] bool
 desc: True when n is 1, 2, 4, 8, ... Zero and negative numbers are not powers of two. Any int.
 example: is_power_of_two(-1000000000) == false

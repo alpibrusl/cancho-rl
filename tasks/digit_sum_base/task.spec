@@ -1,5 +1,6 @@
 name: digit_sum_base
 ret: int
+kind: loop
 sig: fn digit_sum_base(n: int, b: int) -> [] int
 desc: The sum of the digits of n written in base b. Domain: 0 <= n <= 1000000000000 and 2 <= b <= 10. digit_sum_base(255, 2) is 8.
 example: digit_sum_base(0, 2) == 0

@@ -1,5 +1,6 @@
 name: count_divisors
 ret: int
+kind: loop
 sig: fn count_divisors(n: int) -> [] int
 desc: How many positive integers divide n exactly, 1 and n included. Domain: 1 <= n <= 100000.
 example: count_divisors(1) == 1

@@ -1,5 +1,6 @@
 name: day_of_year
 ret: int
+kind: loop
 sig: fn day_of_year(m: int, d: int) -> [] int
 desc: The position of the date (month m, day d) in a year that is not a leap year: January 1 is day 1, December 31 is day 365. Domain: 1 <= m <= 12 and d is a valid day of month m (February has 28 days).
 example: day_of_year(1, 1) == 1

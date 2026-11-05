@@ -1,5 +1,6 @@
 name: is_triangle_number
 ret: bool
+kind: loop
 sig: fn is_triangle_number(n: int) -> [] bool
 desc: True when n is a triangle number, that is 1 + 2 + ... + k for some k >= 0 (0 counts, with k = 0). Domain: 0 <= n <= 1000000.
 example: is_triangle_number(10) == true

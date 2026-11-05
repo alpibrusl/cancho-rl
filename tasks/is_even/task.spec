@@ -1,5 +1,6 @@
 name: is_even
 ret: bool
+kind: branch
 sig: fn is_even(x: int) -> [] bool
 desc: True when x is even. Any int, negative ones included: -4 is even and -3 is not. (% on a negative int can be negative; compare it with == 0 only.)
 example: is_even(-1000000000) == true
