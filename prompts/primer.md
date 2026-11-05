@@ -37,3 +37,4 @@ Rules that matter:
 - Operators: `+ - * / %`, comparisons, `&& || !`. `/` truncates toward zero and `%` keeps the sign of the left side, so `-7 % 2` is `-1`: compare a remainder with `== 0`, nothing else, when the sign can be negative.
 - Write negation as `0 - x`. Integer overflow is an error, not a wrap: keep intermediate values inside 64 bits.
 - A function that uses a helper must define the helper too, above or below it.
+- There is no `+=`, `-=`, `*=` or `/=`: write `x = x + 1;`. There is no `abs`, `min` or `max`: write an `if`. Function parameters cannot be assigned: copy one into a `var` first.
