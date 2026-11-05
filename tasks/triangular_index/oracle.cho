@@ -1,0 +1,10 @@
+edition 7;
+
+fn o_ti(n: int, k: int, sum: int) -> [] int {
+    if sum >= n { return k; }
+    return o_ti(n, k + 1, sum + k + 1);
+}
+
+fn o_triangular_index(n: int) -> [] int {
+    return o_ti(n, 0, 0);
+}

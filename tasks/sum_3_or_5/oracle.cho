@@ -1,0 +1,8 @@
+edition 7;
+
+fn o_sum_3_or_5(n: int) -> [] int {
+    if n <= 0 { return 0; }
+    var here = 0;
+    if n % 3 == 0 || n % 5 == 0 { here = n; }
+    return here + o_sum_3_or_5(n - 1);
+}

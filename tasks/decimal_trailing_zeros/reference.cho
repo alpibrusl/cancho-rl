@@ -1,0 +1,11 @@
+edition 7;
+
+fn decimal_trailing_zeros(n: int) -> [] int {
+    var m = n;
+    var c = 0;
+    while m % 10 == 0 {
+        m = m / 10;
+        c = c + 1;
+    }
+    return c;
+}

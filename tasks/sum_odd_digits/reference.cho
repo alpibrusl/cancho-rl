@@ -1,0 +1,12 @@
+edition 7;
+
+fn sum_odd_digits(n: int) -> [] int {
+    var m = n;
+    var s = 0;
+    while m > 0 {
+        let d = m % 10;
+        if d % 2 == 1 { s = s + d; }
+        m = m / 10;
+    }
+    return s;
+}

@@ -1,0 +1,8 @@
+edition 7;
+
+fn o_count_odd_digits(n: int) -> [] int {
+    if n == 0 { return 0; }
+    var here = 0;
+    if (n % 10) % 2 == 1 { here = 1; }
+    return here + o_count_odd_digits(n / 10);
+}

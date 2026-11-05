@@ -1,0 +1,11 @@
+edition 7;
+
+fn count_odd_digits(n: int) -> [] int {
+    var m = n;
+    var c = 0;
+    while m > 0 {
+        if (m % 10) % 2 == 1 { c = c + 1; }
+        m = m / 10;
+    }
+    return c;
+}

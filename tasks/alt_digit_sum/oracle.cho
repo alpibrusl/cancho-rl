@@ -1,0 +1,10 @@
+edition 7;
+
+fn o_ads(n: int, sign: int) -> [] int {
+    if n == 0 { return 0; }
+    return sign * (n % 10) + o_ads(n / 10, 0 - sign);
+}
+
+fn o_alt_digit_sum(n: int) -> [] int {
+    return o_ads(n, 1);
+}

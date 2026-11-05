@@ -1,0 +1,12 @@
+edition 7;
+
+fn count_zero_digits(n: int) -> [] int {
+    if n == 0 { return 1; }
+    var m = n;
+    var c = 0;
+    while m > 0 {
+        if m % 10 == 0 { c = c + 1; }
+        m = m / 10;
+    }
+    return c;
+}

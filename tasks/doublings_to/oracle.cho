@@ -1,0 +1,10 @@
+edition 7;
+
+fn o_dt(v: int, n: int) -> [] int {
+    if v >= n { return 0; }
+    return 1 + o_dt(v * 2, n);
+}
+
+fn o_doublings_to(n: int) -> [] int {
+    return o_dt(1, n);
+}

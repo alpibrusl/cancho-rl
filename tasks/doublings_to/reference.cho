@@ -1,0 +1,11 @@
+edition 7;
+
+fn doublings_to(n: int) -> [] int {
+    var v = 1;
+    var c = 0;
+    while v < n {
+        v = v * 2;
+        c = c + 1;
+    }
+    return c;
+}

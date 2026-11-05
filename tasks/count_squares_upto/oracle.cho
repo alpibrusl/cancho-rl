@@ -1,0 +1,10 @@
+edition 7;
+
+fn o_csu(n: int, k: int) -> [] int {
+    if k * k > n { return 0; }
+    return 1 + o_csu(n, k + 1);
+}
+
+fn o_count_squares_upto(n: int) -> [] int {
+    return o_csu(n, 1);
+}

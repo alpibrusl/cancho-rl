@@ -1,0 +1,6 @@
+edition 7;
+
+fn o_first_digit(n: int) -> [] int {
+    if n < 10 { return n; }
+    return o_first_digit(n / 10);
+}

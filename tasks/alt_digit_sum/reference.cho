@@ -1,0 +1,13 @@
+edition 7;
+
+fn alt_digit_sum(n: int) -> [] int {
+    var m = n;
+    var s = 0;
+    var plus = true;
+    while m > 0 {
+        if plus { s = s + m % 10; } else { s = s - m % 10; }
+        plus = !plus;
+        m = m / 10;
+    }
+    return s;
+}
