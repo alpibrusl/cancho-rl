@@ -1,0 +1,12 @@
+edition 7;
+
+fn o_sd(n: int, d: int) -> [] int {
+    if d > n { return 0; }
+    var here = 0;
+    if n % d == 0 { here = d; }
+    return here + o_sd(n, d + 1);
+}
+
+fn o_sum_divisors(n: int) -> [] int {
+    return o_sd(n, 1);
+}

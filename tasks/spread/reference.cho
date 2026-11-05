@@ -1,0 +1,11 @@
+edition 7;
+
+fn spread(a: int, b: int, c: int) -> [] int {
+    var hi = a;
+    var lo = a;
+    if b > hi { hi = b; }
+    if c > hi { hi = c; }
+    if b < lo { lo = b; }
+    if c < lo { lo = c; }
+    return hi - lo;
+}

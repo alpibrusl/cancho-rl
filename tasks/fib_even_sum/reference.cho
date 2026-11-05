@@ -1,0 +1,14 @@
+edition 7;
+
+fn fib_even_sum(limit: int) -> [] int {
+    var a = 1;
+    var b = 2;
+    var s = 0;
+    while a <= limit {
+        if a % 2 == 0 { s = s + a; }
+        let t = a + b;
+        a = b;
+        b = t;
+    }
+    return s;
+}

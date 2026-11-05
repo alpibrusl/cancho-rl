@@ -1,0 +1,15 @@
+edition 7;
+
+fn o_max2(a: int, b: int) -> [] int {
+    if a > b { return a; }
+    return b;
+}
+
+fn o_min2(a: int, b: int) -> [] int {
+    if a < b { return a; }
+    return b;
+}
+
+fn o_spread(a: int, b: int, c: int) -> [] int {
+    return o_max2(a, o_max2(b, c)) - o_min2(a, o_min2(b, c));
+}
