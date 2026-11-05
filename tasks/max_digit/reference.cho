@@ -1,0 +1,12 @@
+edition 7;
+
+fn max_digit(n: int) -> [] int {
+    var m = n;
+    var best = 0;
+    while m > 0 {
+        let d = m % 10;
+        if d > best { best = d; }
+        m = m / 10;
+    }
+    return best;
+}

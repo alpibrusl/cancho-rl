@@ -1,0 +1,7 @@
+edition 7;
+
+fn min3(a: int, b: int, c: int) -> [] int {
+    if a <= b && a <= c { return a; }
+    if b <= c { return b; }
+    return c;
+}

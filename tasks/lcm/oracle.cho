@@ -1,0 +1,10 @@
+edition 7;
+
+fn o_gcd(a: int, b: int) -> [] int {
+    if b == 0 { return a; }
+    return o_gcd(b, a % b);
+}
+
+fn o_lcm(a: int, b: int) -> [] int {
+    return a / o_gcd(a, b) * b;
+}

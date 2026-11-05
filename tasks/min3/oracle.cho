@@ -1,0 +1,8 @@
+edition 7;
+
+fn o_min3(a: int, b: int, c: int) -> [] int {
+    var m = a;
+    if b < m { m = b; }
+    if c < m { m = c; }
+    return m;
+}

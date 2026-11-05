@@ -1,0 +1,11 @@
+edition 7;
+
+fn trailing_zeros_fact(n: int) -> [] int {
+    var m = n;
+    var c = 0;
+    while m >= 5 {
+        m = m / 5;
+        c = c + m;
+    }
+    return c;
+}

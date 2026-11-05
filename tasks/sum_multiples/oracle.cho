@@ -1,0 +1,11 @@
+edition 7;
+
+fn o_tri(k: int, below: int) -> [] int {
+    let m = (below - 1) / k;
+    return k * m * (m + 1) / 2;
+}
+
+fn o_sum_multiples(n: int) -> [] int {
+    if n <= 0 { return 0; }
+    return o_tri(3, n) + o_tri(5, n) - o_tri(15, n);
+}

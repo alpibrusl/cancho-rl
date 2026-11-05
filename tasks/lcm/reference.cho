@@ -1,0 +1,9 @@
+edition 7;
+
+fn lcm(a: int, b: int) -> [] int {
+    var m = a;
+    while m % b != 0 {
+        m = m + a;
+    }
+    return m;
+}

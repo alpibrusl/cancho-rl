@@ -1,0 +1,8 @@
+edition 7;
+
+fn clamp(x: int, lo: int, hi: int) -> [] int {
+    var r = x;
+    if r < lo { r = lo; }
+    if r > hi { r = hi; }
+    return r;
+}
