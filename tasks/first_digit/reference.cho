@@ -1,0 +1,9 @@
+edition 7;
+
+fn first_digit(n: int) -> [] int {
+    var m = n;
+    while m >= 10 {
+        m = m / 10;
+    }
+    return m;
+}

@@ -1,0 +1,6 @@
+edition 7;
+
+fn o_count_twos(n: int) -> [] int {
+    if n % 2 != 0 { return 0; }
+    return 1 + o_count_twos(n / 2);
+}

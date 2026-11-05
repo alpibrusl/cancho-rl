@@ -1,0 +1,9 @@
+edition 7;
+
+fn largest_pow2_le(n: int) -> [] int {
+    var p = 1;
+    while p * 2 <= n {
+        p = p * 2;
+    }
+    return p;
+}

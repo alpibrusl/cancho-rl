@@ -1,0 +1,6 @@
+edition 7;
+
+fn o_decimal_trailing_zeros(n: int) -> [] int {
+    if n % 10 != 0 { return 0; }
+    return 1 + o_decimal_trailing_zeros(n / 10);
+}

@@ -1,0 +1,11 @@
+edition 7;
+
+fn triangular_index(n: int) -> [] int {
+    var k = 0;
+    var sum = 0;
+    while sum < n {
+        k = k + 1;
+        sum = sum + k;
+    }
+    return k;
+}

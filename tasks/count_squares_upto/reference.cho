@@ -1,0 +1,11 @@
+edition 7;
+
+fn count_squares_upto(n: int) -> [] int {
+    var k = 1;
+    var c = 0;
+    while k * k <= n {
+        c = c + 1;
+        k = k + 1;
+    }
+    return c;
+}
