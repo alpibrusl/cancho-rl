@@ -1,0 +1,10 @@
+edition 7;
+
+fn o_max2(a: int, b: int) -> [] int {
+    if a > b { return a; }
+    return b;
+}
+
+fn o_max4(a: int, b: int, c: int, d: int) -> [] int {
+    return o_max2(o_max2(a, b), o_max2(c, d));
+}

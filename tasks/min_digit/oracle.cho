@@ -1,0 +1,9 @@
+edition 7;
+
+fn o_min_digit(n: int) -> [] int {
+    if n < 10 { return n; }
+    let rest = o_min_digit(n / 10);
+    let d = n % 10;
+    if d < rest { return d; }
+    return rest;
+}

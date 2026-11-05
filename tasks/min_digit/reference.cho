@@ -1,0 +1,13 @@
+edition 7;
+
+fn min_digit(n: int) -> [] int {
+    if n == 0 { return 0; }
+    var m = n;
+    var best = 9;
+    while m > 0 {
+        let d = m % 10;
+        if d < best { best = d; }
+        m = m / 10;
+    }
+    return best;
+}

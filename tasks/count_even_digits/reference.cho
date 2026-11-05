@@ -1,0 +1,13 @@
+edition 7;
+
+fn count_even_digits(n: int) -> [] int {
+    var m = n;
+    var count = 0;
+    if m == 0 { return 1; }
+    while m > 0 {
+        let d = m % 10;
+        if d % 2 == 0 { count = count + 1; }
+        m = m / 10;
+    }
+    return count;
+}

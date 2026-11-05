@@ -1,0 +1,7 @@
+edition 7;
+
+fn o_bulk_total(price: int, qty: int) -> [] int {
+    let full = price * qty;
+    if qty >= 10 { return full - full / 5; }
+    return full;
+}

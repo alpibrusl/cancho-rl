@@ -1,0 +1,15 @@
+edition 7;
+
+fn o_is_valid_triangle(a: int, b: int, c: int) -> [] bool {
+    var longest = a;
+    var others = b + c;
+    if b > longest {
+        longest = b;
+        others = a + c;
+    }
+    if c > longest {
+        longest = c;
+        others = a + b;
+    }
+    return longest < others;
+}

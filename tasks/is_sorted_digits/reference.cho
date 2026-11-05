@@ -1,0 +1,13 @@
+edition 7;
+
+fn is_sorted_digits(n: int) -> [] bool {
+    var m = n;
+    var prev = 9;
+    while m > 0 {
+        let d = m % 10;
+        if d > prev { return false; }
+        prev = d;
+        m = m / 10;
+    }
+    return true;
+}

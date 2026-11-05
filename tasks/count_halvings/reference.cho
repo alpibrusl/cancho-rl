@@ -1,0 +1,11 @@
+edition 7;
+
+fn count_halvings(n: int) -> [] int {
+    var m = n;
+    var steps = 0;
+    while m > 1 {
+        m = m / 2;
+        steps = steps + 1;
+    }
+    return steps;
+}

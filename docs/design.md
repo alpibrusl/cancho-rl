@@ -272,3 +272,18 @@ Built (cancho, edition 9 for `exec_spawn_detached`): `lib/rl/text.cho` (file rea
 
   The totals equal the earlier hand counts (90 of 488; 26, 29, 6). **Branch tasks sit at about 37% and loop tasks at about 11%**, and the held-out side is not easier than the train side within a kind (loop 8.8% against 11%; branch held out is higher, 44% against 31%, on 8 and 10 tasks, which is inside the noise of 8 samples). So the pooled 18% is a mix of two populations, and a held-out curve (R1) is to be reported by kind. Half of the loop/train tasks (18 of 33) are at 0 and give a policy-gradient step nothing until a sample builds.
 * **Not done:** an interval on any rate (the cancho-stats bootstrap is not used yet); a kind field for the 13 branch tasks that differ in difficulty; the held-out side has only 18 tasks, so a per-kind held-out number is a handful of tasks.
+
+## 21. Batch 4: 19 tasks aimed at the window (80 in all), 2026-11-05
+
+* **Tasks added:** 11 `branch` (max4, is_between, sign_product, quadrant, grade_code, ticket_price, is_valid_triangle, round_to_ten, cmp3, hours_between, bulk_total) and 8 short `loop` (sum_evens_to, count_multiples, count_halvings, sum_cubes_to, count_even_digits, min_digit, is_sorted_digits, steps_to_zero). Written after section 20 showed that 22 of the 43 loop tasks were at 0, to put more tasks where a sample can build and solve. The gate caught two of my own errors before sampling: a `bulk_total` rule that made the oracle and reference disagree (fixed in the task's description: the discount rounds down) and a `min_digit` reference that answered 9 for 0. Split: 23 held out, 57 train. 120 short of 200.
+* **[measured] Batch 4** (Qwen2.5-1.5B-Instruct, primer v2, 8 samples a task, `rl report`): 58 of 152 solved (38%); 3 tasks at 0 (is_sorted_digits, count_even_digits, count_halvings), 13 in the window, 3 above it. Branch tasks 47 of 88 (53%), loop tasks 11 of 64 (17%). The aim worked (13 of 19 in the window against 29 of 61 before), at the price of an easier set.
+* **[measured] All 80 tasks** (runs s2 to s6): 148 of 640 (23%); 29 at 0, 42 in the window, 9 above.
+
+| group | tasks | samples | solved | rate | at 0 | window | above |
+|---|---|---|---|---|---|---|---|
+| branch / train | 17 | 136 | 56 | 41% | 2 | 11 | 4 |
+| branch / held out | 12 | 96 | 44 | 46% | 2 | 6 | 4 |
+| loop / train | 40 | 320 | 41 | 13% | 20 | 19 | 1 |
+| loop / held out | 11 | 88 | 7 | 8.0% | 5 | 6 | 0 |
+
+* **Reading:** the loop/held-out side is the thin one (11 tasks, 7 solved samples of 88): any curve on it is a few tasks and needs the interval from cancho-stats before it means anything. The set is now easier than a real coding eval by construction (small integer functions the author could write and an oracle could check); what it tests is whether a policy-gradient step can move a 1.5B model from Python-shaped to cancho-shaped code on such functions, not general coding.

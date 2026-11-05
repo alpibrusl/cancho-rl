@@ -1,0 +1,7 @@
+edition 7;
+
+fn sign_product(a: int, b: int) -> [] int {
+    if a == 0 || b == 0 { return 0; }
+    if (a > 0) == (b > 0) { return 1; }
+    return 0 - 1;
+}
