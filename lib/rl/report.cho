@@ -61,8 +61,26 @@ fn bump[&c](c: &!c vec.Vec[int], g: int, samples: int, solved: int) -> [] int {
     return 0;
 }
 
-// One task's counts into its group and into "all". 0 ok; 1 the task has no readable task.spec; 2 its kind is neither branch nor loop.
-fn flush[&h, &f, &d, &n, &c](heap: &!h Heap, fs: &f Fs(""), dir: &d [byte], id: &n [byte], samples: int, solved: int, c: &!c vec.Vec[int]) -> [heap, fs_read(""), file_read] int {
+// The rate solved / samples as six decimals ("0.375000", "1.000000"), appended to `b`.
+fn push_rate[&h](heap: &!h Heap, b: buffer.Buffer, solved: int, samples: int) -> [heap] buffer.Buffer {
+    var out = b;
+    let micro = solved * 1000000 / samples;
+    if micro >= 1000000 {
+        return buffer.append(heap, out, "1.000000");
+    }
+    out = buffer.append(heap, out, "0.");
+    var div = 100000;
+    while div >= 1 {
+        out = buffer.push(heap, out, byte_of(48 + (micro / div) % 10));
+        div = div / 10;
+    }
+    return out;
+}
+
+// One task's counts into its group and into "all", and its CSV row (`task,kind,side,samples,solved,rate`) onto `rows`.
+// Answers (status, rows): 0 ok; 1 the task has no readable task.spec; 2 its kind is neither branch nor loop.
+fn flush[&h, &f, &d, &n, &c](heap: &!h Heap, fs: &f Fs(""), dir: &d [byte], id: &n [byte], samples: int, solved: int, c: &!c vec.Vec[int], rows: buffer.Buffer) -> [heap, fs_read(""), file_read] (int, buffer.Buffer) {
+    var out = rows;
     var path = buffer.append(heap, buffer.empty(heap, 64), dir);
     path = buffer.push(heap, path, byte_of(47));
     path = buffer.append(heap, path, id);
@@ -90,18 +108,35 @@ fn flush[&h, &f, &d, &n, &c](heap: &!h Heap, fs: &f Fs(""), dir: &d [byte], id: 
                     }
                     bump(c, k * 2 + held, samples, solved);
                     bump(c, 4, samples, solved);
+                    out = buffer.append(heap, out, id);
+                    out = buffer.push(heap, out, byte_of(44));
+                    out = buffer.append(heap, out, kind);
+                    out = buffer.push(heap, out, byte_of(44));
+                    if held == 1 {
+                        out = buffer.append(heap, out, "heldout");
+                    } else {
+                        out = buffer.append(heap, out, "train");
+                    }
+                    out = buffer.push(heap, out, byte_of(44));
+                    out = buffer.push_nat(heap, out, samples);
+                    out = buffer.push(heap, out, byte_of(44));
+                    out = buffer.push_nat(heap, out, solved);
+                    out = buffer.push(heap, out, byte_of(44));
+                    out = push_rate(heap, out, solved, samples);
+                    out = buffer.push(heap, out, byte_of(10));
                 }
             }
         }
         buffer.drop(heap, spec);
     }
     buffer.drop(heap, path);
-    return status;
+    return (status, out);
 }
 
-// Add the results file at `results` to `c`. 0 ok; 1 or 2 as `flush`; 3 the results file cannot be read.
-pub fn tally[&h, &f, &d, &r, &c](heap: &!h Heap, fs: &f Fs(""), dir: &d [byte], results: &r [byte], c: &!c vec.Vec[int]) -> [heap, fs_read(""), file_read] int {
+// Add the results file at `results` to `c`, and a row per task to `rows`. Answers (status, rows): 0 ok; 1 or 2 as `flush`; 3 the results file cannot be read.
+pub fn tally[&h, &f, &d, &r, &c](heap: &!h Heap, fs: &f Fs(""), dir: &d [byte], results: &r [byte], c: &!c vec.Vec[int], rows: buffer.Buffer) -> [heap, fs_read(""), file_read] (int, buffer.Buffer) {
     let (file, failed) = text.read_file(heap, fs, results);
+    var out = rows;
     var status = 0;
     if failed != 0 {
         status = 3;
@@ -124,7 +159,9 @@ pub fn tally[&h, &f, &d, &r, &c](heap: &!h Heap, fs: &f Fs(""), dir: &d [byte], 
                         let id = rest[0..e];
                         if !bytes.equal(id, cur) {
                             if n > 0 {
-                                status = flush(heap, fs, dir, cur, n, s, c);
+                                let (st, grown) = flush(heap, fs, dir, cur, n, s, c, out);
+                                status = st;
+                                out = grown;
                             }
                             cur = id;
                             n = 0;
@@ -138,10 +175,12 @@ pub fn tally[&h, &f, &d, &r, &c](heap: &!h Heap, fs: &f Fs(""), dir: &d [byte], 
                 }
             }
             if n > 0 && status == 0 {
-                status = flush(heap, fs, dir, cur, n, s, c);
+                let (st, grown) = flush(heap, fs, dir, cur, n, s, c, out);
+                status = st;
+                out = grown;
             }
         }
     }
     buffer.drop(heap, file);
-    return status;
+    return (status, out);
 }
