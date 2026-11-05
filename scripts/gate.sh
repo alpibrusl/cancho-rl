@@ -22,6 +22,13 @@ expect const_zero ok 1
 expect early_exit ok 1
 expect mutant_fib ok 1
 [ "${GATE_SLOW:-0}" = 1 ] && expect loop_forever timeout 0
+# the prompt never carries a hidden case, and the split rule is the documented one (FNV-1a 32, mod 4 == 0 held out)
+for t in $(ls tasks); do
+    ./build/rl prompt prompts/primer.md "tasks/$t" | grep -q 'case:' && { echo "FAIL prompt leaks a case: $t"; fail=1; }
+done
+heldout=$(for t in $(ls tasks); do [ "$(./build/rl split "tasks/$t")" = heldout ] && echo "$t"; done | tr '\n' ' ')
+want="binomial ceil_div collatz_steps cube_root_floor digital_root factorial is_power_of_two median3 reverse_digits sign sum_to triangle_kind "
+[ "$heldout" = "$want" ] || { echo "FAIL split: $heldout"; fail=1; }
 python3 scripts/crosscheck.py "$C" > work/crosscheck.txt 2>&1 || { echo "FAIL crosscheck"; grep DISAGREE work/crosscheck.txt; fail=1; }
 [ $fail = 0 ] && echo "gate: ok"
 exit $fail
