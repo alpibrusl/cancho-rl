@@ -149,6 +149,101 @@ fn grade_command[&h, &i, &g, &f, &x, &c](heap: &!h Heap, io: &!i Io, args: &g Ar
     return status;
 }
 
+
+// FNV-1a, 32 bits, over the task id (docs/design.md section 14): int overflow is an error here, so the product is reduced each step.
+fn fnv[&n](name: &n [byte]) -> [] int {
+    var h = 2166136261;
+    var i = 0;
+    while i < len(name) {
+        h = ((h ^ int_of(name[i])) * 16777619) % 4294967296;
+        i = i + 1;
+    }
+    return h;
+}
+
+fn is_heldout[&n](name: &n [byte]) -> [] bool {
+    return fnv(name) % 4 == 0;
+}
+
+// `rl split TASKDIR`: "heldout" or "train" for the task named in TASKDIR/task.spec.
+fn split_command[&h, &i, &g, &f](heap: &!h Heap, io: &!i Io, args: &g Args, fs: &f Fs("")) -> [heap, io_write, err_write, args, fs_read(""), file_read] int {
+    if arg_count(args) != 3 {
+        return refuse(heap, io, "rl.usage", "rl split TASKDIR");
+    }
+    let path = path_in(heap, arg(args, 2), "task.spec");
+    var status = 0;
+    borrow path as &pb in {
+        let (spec, failed) = text.read_file(heap, fs, buffer.bytes(pb));
+        if failed != 0 {
+            status = refuse(heap, io, "rl.task", "no readable task.spec in the task directory");
+        } else {
+            borrow spec as &sb in {
+                var line = buffer.empty(heap, 16);
+                if is_heldout(grade.spec_value(buffer.bytes(sb), "name:")) {
+                    line = buffer.append(heap, line, "heldout\n");
+                } else {
+                    line = buffer.append(heap, line, "train\n");
+                }
+                borrow line as &lb in {
+                    buffer.write(io, lb);
+                }
+                buffer.drop(heap, line);
+            }
+        }
+        buffer.drop(heap, spec);
+    }
+    buffer.drop(heap, path);
+    return status;
+}
+
+// `rl prompt PRIMER TASKDIR`: the primer file, then the task (signature, description, examples) and the instruction, as the text a policy is given.
+// Never prints a `case:` line: the hidden cases are not part of a prompt.
+fn prompt_command[&h, &i, &g, &f](heap: &!h Heap, io: &!i Io, args: &g Args, fs: &f Fs("")) -> [heap, io_write, err_write, args, fs_read(""), file_read] int {
+    if arg_count(args) != 4 {
+        return refuse(heap, io, "rl.usage", "rl prompt PRIMER TASKDIR");
+    }
+    let path = path_in(heap, arg(args, 3), "task.spec");
+    var status = 0;
+    borrow path as &pb in {
+        let (spec, failed) = text.read_file(heap, fs, buffer.bytes(pb));
+        let (primer, pfailed) = text.read_file(heap, fs, arg(args, 2));
+        if failed != 0 || pfailed != 0 {
+            status = refuse(heap, io, "rl.task", "the primer or the task directory cannot be read");
+        } else {
+            borrow spec as &sb in {
+                borrow primer as &rb in {
+                    var out = buffer.append(heap, buffer.empty(heap, 4096), buffer.bytes(rb));
+                    out = buffer.append(heap, out, "\n\n## The task\n\nWrite this function in cancho:\n\n");
+                    out = buffer.append(heap, out, grade.spec_value(buffer.bytes(sb), "sig:"));
+                    out = buffer.append(heap, out, "\n\n");
+                    out = buffer.append(heap, out, grade.spec_value(buffer.bytes(sb), "desc:"));
+                    out = buffer.append(heap, out, "\n\nExamples:\n");
+                    let n = text.line_count(buffer.bytes(sb));
+                    var k = 1;
+                    while k <= n {
+                        let ex = text.after(text.line(buffer.bytes(sb), k), "example:");
+                        if len(ex) > 0 {
+                            out = buffer.append(heap, out, "    ");
+                            out = buffer.append(heap, out, ex);
+                            out = buffer.push(heap, out, byte_of(10));
+                        }
+                        k = k + 1;
+                    }
+                    out = buffer.append(heap, out, "\nReply with the complete program in one ```cancho code block: `edition 7;`, then the function (and any helper functions it needs). No `main`, no tests, no explanation.\n");
+                    borrow out as &ob in {
+                        buffer.write(io, ob);
+                    }
+                    buffer.drop(heap, out);
+                }
+            }
+        }
+        buffer.drop(heap, spec);
+        buffer.drop(heap, primer);
+    }
+    buffer.drop(heap, path);
+    return status;
+}
+
 fn main(world: World) -> [] int {
     let Split { io, ffi, fs, heap, args, net, clock, signals, exec, tty } = split(world);
     release(ffi);
@@ -164,8 +259,12 @@ fn main(world: World) -> [] int {
                         borrow mut io as &!i in {
                             if arg_count(g) >= 2 && bytes.equal(arg(g, 1), "grade") {
                                 status = grade_command(h, i, g, f, x, c);
+                            } else if arg_count(g) >= 2 && bytes.equal(arg(g, 1), "split") {
+                                status = split_command(h, i, g, f);
+                            } else if arg_count(g) >= 2 && bytes.equal(arg(g, 1), "prompt") {
+                                status = prompt_command(h, i, g, f);
                             } else {
-                                status = refuse(h, i, "rl.usage", "the command is `rl grade`");
+                                status = refuse(h, i, "rl.usage", "the commands are `rl grade`, `rl split` and `rl prompt`");
                             }
                         }
                     }
