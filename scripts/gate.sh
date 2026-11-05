@@ -21,6 +21,8 @@ expect div_zero ok 0
 expect const_zero ok 1
 expect early_exit ok 1
 expect mutant_fib ok 1
+expect deep_recursion ok 0
+expect heap_grab build_error 0
 [ "${GATE_SLOW:-0}" = 1 ] && expect loop_forever timeout 0
 # the prompt never carries a hidden case, and the split rule is the documented one (FNV-1a 32, mod 4 == 0 held out)
 for t in $(ls tasks); do
