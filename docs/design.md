@@ -1,10 +1,14 @@
 # cancho-rl: reinforcement learning on cancho-gpu (a design, written before the code)
 
+> Amended 2026-11-04 (second version): the scope is any policy with log-probabilities and a weighted gradient step, with two tracks (language models first, small control policies second); see sections 1 and 4b.
+>
+> Amended 2026-11-05 (third version, reviewing the second): the repository is a **generic RL framework whose first instance is the language-model track**. Section 4c names the seams that make it generic (policy, environment, rollout, estimator, objective, evaluator), says which of the code written so far is generic and which is LLM-only, and fixes when the shared layer is extracted (when the second instance needs it, not before). Section 1's "two tracks" paragraph is reworded to match.
+
 > Written 2026-11-04, before any code. **Nothing in this document is built or measured in this repository.** Claims carry a mark: **[read]** from a file of another repository (named), **[derived]** from numbers that were measured elsewhere, **[estimate]** a guess with its reasoning, **[unknown]** not looked at yet and to be read before the milestone that depends on it. A claim that turns out false is corrected here, in place, with the date.
 
 ## 1. What this is, and what it is not
 
-`cancho-rl` is where reinforcement-learning *algorithms* live: the rollout loop, rewards, advantage estimators, the policy-gradient loss and the experiments that measure them. It runs on top of [`cancho-gpu`](https://github.com/alpibrusl/cancho-gpu), which owns the kernels, the training sessions and the runners.
+`cancho-rl` is where reinforcement-learning *algorithms* live, for **any policy that can give the log-probability of its actions and take a weighted gradient step**: a language model (the first track, sections 2 to 7) and a small control network for a robot (the second track, section 4b): the rollout loop, rewards, advantage estimators, the policy-gradient loss and the experiments that measure them. It runs on top of [`cancho-gpu`](https://github.com/alpibrusl/cancho-gpu), which owns the kernels, the training sessions and the runners.
 
 The split, and why:
 
@@ -12,7 +16,9 @@ The split, and why:
 * **cancho-rl keeps the algorithms and the experiments.** GRPO, REINFORCE with a leave-one-out baseline, PPO if ever; reward functions; the evaluation protocol.
 * **The environments stay where they live.** Tasks with a checkable reward for a coding model come from `cancho-code` (its eval harness and journals); a robot policy would come from `cancho-robot`'s simulator. `cancho-rl` calls them; they do not depend on it.
 
-Not goals: a general RL framework, a gym replacement, multi-GPU or NVIDIA training (cancho-gpu's CUDA path has run only kernels so far, not a training session), RLHF with a learned reward model.
+Not goals: a gym replacement or a catalogue of every algorithm (an algorithm is added when a track needs it and has a measured baseline), multi-GPU or NVIDIA training (cancho-gpu's CUDA path has run only kernels so far, not a training session), RLHF with a learned reward model.
+
+**A framework with one instance built first.** The LLM instance (GRPO, language-model policies) is built first because its reward is checkable and its baseline is measured (section 2); the control instance (section 4b) is the second, and the seams between what is shared and what is not are in section 4c. The shared layer is not written ahead of the second instance: with one instance every guess about the seams is a guess, so the first instance is written with the seams named and kept clean, and the extraction happens when the second one shows which guesses were wrong. The control instance shares the parts that do not depend on the policy: the advantage estimators, the loss as a weighted log-probability objective, the evaluation protocol with seeds and bootstrap intervals, and the rule that a reference implementation in torch comes first. What differs is the regime: a language-model iteration is dominated by generating completions, a control-policy iteration by simulator steps and by many small gradient steps. Nothing in the algorithm layer may assume tokens, a vocabulary or a prompt.
 
 ## 2. The first target, and why this one
 
@@ -56,6 +62,51 @@ Exit criteria are fixed here, before building. Each milestone is a separate chan
 
 **R4. The loop end to end on cancho-gpu.** R1's experiment with R2's step and R3's rollouts. Exit: the held-out pass-rate curve within the spread of two R1 seeds at every checkpoint, and seconds per iteration and peak memory reported against R1's. If the rollouts are still the cost (they will be, section 6), the report says what fraction of an iteration they take.
 
+## 4b. The second track: small control policies for cancho-robot (an outline; milestones are fixed when the environment has been read)
+
+**Why it is worth having.** The measured wins of cancho-gpu over torch on MPS are on small networks, where launch overhead and fusion decide: the 60 M-parameter GPT step 15% faster, the MLP and CNN steps within a few percent either way, a CNN 1.6 times slower **[read: cancho-gpu `docs/resident.md` sections 13 to 19]**. A control policy is a small network (an MLP, or a small CNN on camera frames) updated many times, so the regime is the one where cancho-gpu has something to show; whether it shows it for RL is not known.
+
+**First algorithm: PPO** (clipped surrogate, generalised advantage estimation, a value head sharing the trunk or a separate small network). It is the default baseline for continuous control; SAC or others are added only if PPO plus the task leaves a question they answer. **[open]**
+
+**The environment.** cancho-robot's simulator, which owns the dynamics and the reward. What `cancho-rl` needs from it is an interface of a few calls (reset with a seed, step with an action, observation and reward, a done flag, a way to run many environments in a batch). Whether `cancho-robot` offers that, in a form callable from a session driver at the speed an RL loop needs, is **[unknown]** and is the first thing to read for this track. If the simulator is slow, the milestones below measure that before they measure anything about learning.
+
+**Milestones (outline, exit criteria to be fixed before building each):**
+
+* **C0. The environment and its baseline.** A task in cancho-robot with a reward and a way to run it in batches; a random policy and a scripted policy scored. Exit: environment steps a second, the reward of both baselines with seeds, and a check that the reward cannot be earned by a degenerate behaviour (the control analogue of R0(c)).
+* **C1. A torch PPO reference.** Torch on MPS (or CPU, whichever is faster for these sizes), the same environment. Exit: the return after N environment steps above the scripted baseline's, with two seeds at least, or the negative result recorded.
+* **C2. The PPO update in a cancho-gpu session equals torch's.** One fixed batch of trajectories: the loss and every parameter gradient against C1's, then a short run whose return curve is within the spread of two torch seeds. This is the point where the small-network advantage, if any, is measured: seconds per update against torch's.
+* **C3. The loop end to end, with the simulator in the picture.** Report the fraction of wall time spent in the simulator, the policy forward, and the update. If the simulator dominates, the honest conclusion is that the update's speed does not matter for this task, and that is the result.
+
+The risks of section 7 apply with the changes the regime brings: reward hacking appears as the policy exploiting simulator quirks (sim-to-real caveats stay in cancho-robot's documents; no number from simulation here says anything about the real arm), and RL on small networks is noisy enough that fewer than two seeds is not an experiment.
+
+## 4c. The framework: six seams, and what is generic today (2026-11-05)
+
+An RL run is the same loop whatever the policy is: *sample actions from the policy in an environment, turn rewards into advantages, take a weighted gradient step, measure on held-out instances*. The framework is the loop plus six interfaces; an instance (LLM, control) supplies the first two and shares the rest.
+
+| Seam | What it is | LLM instance (first) | Control instance (second, outline) |
+|---|---|---|---|
+| **Policy** | `act(observation, seed) -> action, logprob`; `logprob(observation, action)`; `step(weights)`; adapter or parameter state to save and restore | Qwen with LoRA on cancho-gpu; an action is a completion (tokens) | an MLP or small CNN; an action is a vector |
+| **Environment** | a named, seeded instance: `reset(seed) -> observation`, `step(action) -> observation, reward, done`; a one-shot environment is the special case of one step | a task from `tasks/<id>`; one step, the completion is the program; the reward is the grader's | a cancho-robot scene, many steps |
+| **Rollout** | runs a batch of policy-environment episodes, records `(observation, action, logprob, reward, done)` | a sampling script (`scripts/sample.sh`, run in section 17) | simulator batch |
+| **Estimator** | rewards of a group or trajectory to advantages: leave-one-out group baseline (GRPO), GAE (PPO) | group-relative, per task | GAE with a value head |
+| **Objective** | advantages and logprobs to a weighted log-probability loss, with clipping and the KL term | token-level, masked to the completion | per-step |
+| **Evaluator** | held-out instances, seeds, interval | pass rate at k samples, bootstrap interval | return over seeds, bootstrap interval |
+
+Nothing above the line between Policy/Environment and the rest may assume tokens, a vocabulary, a prompt, a sandbox, or that a reward lies in [0, 1].
+
+**What the code written so far is, said plainly [read from this repository: PR #2 and PR #3, both merged, the second holding `rl split`, `rl prompt`, `prompts/primer.md`, `scripts/sample.sh` and design section 16]:**
+
+* **Generic already, and worth extracting later:** the held-out split rule (FNV-1a over an instance name, `tools/rl/main.cho`: `fnv`, `is_heldout`; it needs only a name); the reward record's shape `{id, reward, solved, status}`; the rule that a failure of the thing under test is a reward and never a failure of the trainer; the rule that a gate probe (an input that must score a known value) exists for every reward.
+* **LLM-only, and staying in the LLM instance:** `lib/rl/grade.cho` (composes a test module from a candidate *program* and an oracle, runs `cancho test` under a deadline: the sandbox exists because the policy's output is untrusted code, which a control policy's is not), `rl prompt`, `prompts/primer.md`, `tasks/`, `scripts/sample.sh`.
+* **Shared helpers, not a design question:** `lib/rl/text.cho`.
+* The reward in the LLM instance is `passed/of` in [0, 1] plus `solved`; a control instance's reward is an unbounded return, so the record's `reward` is a float with no range promised and `solved` is optional. This is the first guess that would have been wrong if the framework had been written from the LLM case alone.
+
+**Layout, and when it changes.** Today: `lib/rl/{text,grade}.cho` and `tools/rl/main.cho`. The shared layer moves to `lib/rl/core/` and the LLM code to `lib/rl/llm/` **when the first control milestone (C0) starts**, as one change that moves files and nothing else, so the history shows what the second instance forced. Until then no file is renamed and no interface is declared in code that nothing calls. This answers open question 6 (section 9): one repository, one directory per instance, the shared layer extracted at the second instance.
+
+**What would make this framework the wrong shape, stated now.** (a) If the policy interface needs the whole sampling loop inside cancho-gpu (as decoding on a fused kernel may require, section 6), `act` is a batch call into the session, not a per-observation call, and the Rollout seam is the session's. (b) If control rollouts need the simulator and the policy in one process to be fast enough, the Environment seam is a batch API (`step` over N environments), which the one-shot LLM environment satisfies trivially with N = the group size. (c) If the objective for the two instances differs in more than masking and the estimator, the Objective seam is two functions behind one name, and that is a finding, not a failure.
+
+**Python and torch** stay what section 14 made them: in the control instance, C1's torch PPO reference is a comparison helper under `scripts/`, never a dependency of the package.
+
 ## 5. The experiment, stated before it is run
 
 * **Model:** Qwen2.5-1.5B-Instruct is the first choice (the size M8 tuned and cancho-gpu trains in 19.4 GB); the 0.5B for fast iteration of the code. **[open]** the maintainer's call.
@@ -97,10 +148,12 @@ Inherited from cancho-gpu and cancho, because they work:
 2. Task source: all of cancho-code's eval tasks, or a subset with deterministic checkers only?
 3. Does R1 wait for M8's final result (the supervised baseline), or start from the base model now? (The M8 run is the first thing to finish; R0 and R1 do not depend on it.)
 4. Is a negative R1 result acceptable as the end of the project? (The design says yes: section 4, R1.)
+5. Is the control track (section 4b) wanted, and which cancho-robot task is the first one? It can start with C0 as soon as the simulator's batch interface has been read; it does not wait for the LLM track.
+6. Do the two tracks share a repository layout from the start (one `algo/` layer, one directory per track), or does the second track begin as a copy and get merged when the shared layer is clear? This design assumes the first. **Answered in the design 2026-11-05 (section 4c):** one repository, one directory per instance, the shared layer extracted when the second instance starts, not before; the maintainer may still overrule.
 
 ## 10. Limits of this document
 
-Written from the documents and file names of cancho-gpu, not from running anything. The kernel contracts (the weighted loss, the adapters-off forward, the cost of merging adapters per iteration) and cancho-code's reward API are to be read, not assumed, before R0 and R2. All timing figures quoted are cancho-gpu's own, on one M4 Max; none was measured for RL.
+Written from the documents and file names of cancho-gpu, not from running anything. The kernel contracts (the weighted loss, the adapters-off forward, the cost of merging adapters per iteration) and cancho-code's reward API are to be read, not assumed, before R0 and R2. All timing figures quoted are cancho-gpu's own, on one M4 Max; none was measured for RL. The control track (section 4b) is an outline written without having read cancho-robot's simulator interface; its milestones are placeholders until that is read.
 
 ## 11. R0 harness probe (2026-11-04): what cancho-code's eval offers as a reward
 
