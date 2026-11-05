@@ -1,0 +1,15 @@
+edition 7;
+
+fn o_days_in_month(year: int, month: int) -> [] int {
+    let leap = year % 4 == 0 && !(year % 100 == 0 && year % 400 != 0);
+    if month == 2 {
+        if leap { return 29; }
+        return 28;
+    }
+    if month <= 7 {
+        if month % 2 == 1 { return 31; }
+        return 30;
+    }
+    if month % 2 == 0 { return 31; }
+    return 30;
+}

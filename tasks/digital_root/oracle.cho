@@ -1,0 +1,11 @@
+edition 7;
+
+fn o_ds(n: int) -> [] int {
+    if n == 0 { return 0; }
+    return n % 10 + o_ds(n / 10);
+}
+
+fn o_digital_root(n: int) -> [] int {
+    if n < 10 { return n; }
+    return o_digital_root(o_ds(n));
+}

@@ -1,0 +1,13 @@
+edition 7;
+
+fn hamming_bits(a: int, b: int) -> [] int {
+    var x = a;
+    var y = b;
+    var d = 0;
+    while x > 0 || y > 0 {
+        if x % 2 != y % 2 { d = d + 1; }
+        x = x / 2;
+        y = y / 2;
+    }
+    return d;
+}

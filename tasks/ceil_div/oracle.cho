@@ -1,0 +1,7 @@
+edition 7;
+
+fn o_ceil_div(a: int, b: int) -> [] int {
+    let q = a / b;
+    if q * b < a { return q + 1; }
+    return q;
+}

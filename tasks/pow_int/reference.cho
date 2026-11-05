@@ -1,0 +1,11 @@
+edition 7;
+
+fn pow_int(base: int, exp: int) -> [] int {
+    var r = 1;
+    var i = 0;
+    while i < exp {
+        r = r * base;
+        i = i + 1;
+    }
+    return r;
+}

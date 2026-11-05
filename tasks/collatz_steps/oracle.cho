@@ -1,0 +1,11 @@
+edition 7;
+
+fn o_collatz_from(n: int, steps: int) -> [] int {
+    if n == 1 { return steps; }
+    if n % 2 == 0 { return o_collatz_from(n / 2, steps + 1); }
+    return o_collatz_from(3 * n + 1, steps + 1);
+}
+
+fn o_collatz_steps(n: int) -> [] int {
+    return o_collatz_from(n, 0);
+}

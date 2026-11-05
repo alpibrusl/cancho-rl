@@ -1,0 +1,6 @@
+edition 7;
+
+fn o_bit_length(n: int) -> [] int {
+    if n == 0 { return 0; }
+    return 1 + o_bit_length(n / 2);
+}

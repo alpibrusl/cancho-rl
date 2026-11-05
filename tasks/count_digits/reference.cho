@@ -1,0 +1,11 @@
+edition 7;
+
+fn count_digits(n: int) -> [] int {
+    var c = 1;
+    var m = n;
+    while m >= 10 {
+        m = m / 10;
+        c = c + 1;
+    }
+    return c;
+}

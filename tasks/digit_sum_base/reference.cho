@@ -1,0 +1,11 @@
+edition 7;
+
+fn digit_sum_base(n: int, b: int) -> [] int {
+    var s = 0;
+    var m = n;
+    while m > 0 {
+        s = s + m % b;
+        m = m / b;
+    }
+    return s;
+}

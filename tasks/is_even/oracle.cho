@@ -1,0 +1,5 @@
+edition 7;
+
+fn o_is_even(x: int) -> [] bool {
+    return x - (x / 2) * 2 == 0;
+}

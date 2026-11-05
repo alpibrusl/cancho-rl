@@ -1,0 +1,11 @@
+edition 7;
+
+fn popcount(n: int) -> [] int {
+    var c = 0;
+    var m = n;
+    while m > 0 {
+        c = c + m % 2;
+        m = m / 2;
+    }
+    return c;
+}

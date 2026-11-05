@@ -1,0 +1,87 @@
+name: ceil_div
+ret: int
+sig: fn ceil_div(a: int, b: int) -> [] int
+desc: a divided by b, rounded up to the next whole number. Domain: 0 <= a <= 1000000000000 and 1 <= b <= 1000000000. ceil_div(0, 5) is 0.
+example: ceil_div(0, 1) == 0
+example: ceil_div(5, 3) == 2
+example: ceil_div(99, 7) == 15
+case: 0 1
+case: 0 2
+case: 0 3
+case: 0 5
+case: 0 7
+case: 0 10
+case: 0 100
+case: 0 1000000000
+case: 1 1
+case: 1 2
+case: 1 3
+case: 1 5
+case: 1 7
+case: 1 10
+case: 1 100
+case: 1 1000000000
+case: 2 1
+case: 2 2
+case: 2 3
+case: 2 5
+case: 2 7
+case: 2 10
+case: 2 100
+case: 2 1000000000
+case: 5 1
+case: 5 2
+case: 5 3
+case: 5 5
+case: 5 7
+case: 5 10
+case: 5 100
+case: 5 1000000000
+case: 6 1
+case: 6 2
+case: 6 3
+case: 6 5
+case: 6 7
+case: 6 10
+case: 6 100
+case: 6 1000000000
+case: 7 1
+case: 7 2
+case: 7 3
+case: 7 5
+case: 7 7
+case: 7 10
+case: 7 100
+case: 7 1000000000
+case: 99 1
+case: 99 2
+case: 99 3
+case: 99 5
+case: 99 7
+case: 99 10
+case: 99 100
+case: 99 1000000000
+case: 100 1
+case: 100 2
+case: 100 3
+case: 100 5
+case: 100 7
+case: 100 10
+case: 100 100
+case: 100 1000000000
+case: 101 1
+case: 101 2
+case: 101 3
+case: 101 5
+case: 101 7
+case: 101 10
+case: 101 100
+case: 101 1000000000
+case: 1000000000000 1
+case: 1000000000000 2
+case: 1000000000000 3
+case: 1000000000000 5
+case: 1000000000000 7
+case: 1000000000000 10
+case: 1000000000000 100
+case: 1000000000000 1000000000

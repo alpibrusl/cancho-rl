@@ -1,0 +1,11 @@
+edition 7;
+
+fn bit_length(n: int) -> [] int {
+    var c = 0;
+    var m = n;
+    while m > 0 {
+        m = m / 2;
+        c = c + 1;
+    }
+    return c;
+}

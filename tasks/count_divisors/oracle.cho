@@ -1,0 +1,14 @@
+edition 7;
+
+fn o_count_divisors(n: int) -> [] int {
+    var c = 0;
+    var d = 1;
+    while d * d <= n {
+        if n % d == 0 {
+            c = c + 2;
+            if d * d == n { c = c - 1; }
+        }
+        d = d + 1;
+    }
+    return c;
+}

@@ -1,0 +1,7 @@
+edition 7;
+
+fn mod_floor(a: int, b: int) -> [] int {
+    let r = a % b;
+    if r < 0 { return r + b; }
+    return r;
+}

@@ -1,0 +1,6 @@
+edition 7;
+
+fn o_digit_sum_base(n: int, b: int) -> [] int {
+    if n == 0 { return 0; }
+    return n % b + o_digit_sum_base(n / b, b);
+}

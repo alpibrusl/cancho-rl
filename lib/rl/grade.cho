@@ -1,0 +1,260 @@
+edition 9;
+
+module rl.grade;
+
+// The grader (docs/design.md sections 12 and 14): a candidate program and a task in, a reward out.
+//
+// The test file is the candidate (its `main` removed, its functions made `pub`), the task's oracle (`tasks/<id>/oracle.cho`, functions
+// named `o_<name>`), and one `test_cNNN` per `case:` line of `task.spec` that asserts `name(args) == o_name(args)`. `cancho test` runs it
+// under `ulimit -t` and a wall deadline; anything the candidate does wrong is a reward, never a failure of this program.
+
+import rl.text;
+import std.buffer;
+import std.bytes;
+import std.process;
+
+pub fn status_ok() -> [] int {
+    return 0;
+}
+
+pub fn status_build_error() -> [] int {
+    return 1;
+}
+
+pub fn status_trap() -> [] int {
+    return 2;
+}
+
+pub fn status_timeout() -> [] int {
+    return 3;
+}
+
+pub fn status_name(s: int) -> [] &static [byte] {
+    if s == 0 {
+        return "ok";
+    }
+    if s == 1 {
+        return "build_error";
+    }
+    if s == 2 {
+        return "trap";
+    }
+    return "timeout";
+}
+
+// `src` made part of the test module: edition, module and `import std.test;` lines dropped, `fn main(...) {` .. `}` dropped,
+// top-level fn, struct and enum made `pub`.
+fn wrap_into[&h, &s](heap: &!h Heap, into: buffer.Buffer, src: &s [byte]) -> [heap] buffer.Buffer {
+    var out = into;
+    let n = text.line_count(src);
+    var skipping = false;
+    var k = 1;
+    while k <= n {
+        let ln = text.line(src, k);
+        k = k + 1;
+        if skipping {
+            if bytes.equal(ln, "}") {
+                skipping = false;
+            }
+        } else if bytes.starts_with(ln, "fn main(") {
+            skipping = true;
+        } else if bytes.starts_with(ln, "edition ") || bytes.starts_with(ln, "module ") || bytes.equal(bytes.trim(ln), "import std.test;") {
+        } else {
+            if bytes.starts_with(ln, "fn ") || bytes.starts_with(ln, "struct ") || bytes.starts_with(ln, "enum ") {
+                out = buffer.append(heap, out, "pub ");
+            }
+            out = buffer.append(heap, out, ln);
+            out = buffer.push(heap, out, byte_of(10));
+        }
+    }
+    return out;
+}
+
+// One test function. `args` is the case line's text after `case:`.
+fn test_fn[&h, &a, &n](heap: &!h Heap, into: buffer.Buffer, name: &n [byte], is_bool: bool, args: &a [byte], index: int) -> [heap] buffer.Buffer {
+    var out = into;
+    out = buffer.append(heap, out, "pub fn test_c");
+    out = buffer.push_nat(heap, out, index);
+    out = buffer.append(heap, out, "() -> [] int { ");
+    if is_bool {
+        out = buffer.append(heap, out, "test.assert(");
+    } else {
+        out = buffer.append(heap, out, "test.assert_eq(");
+    }
+    out = buffer.append(heap, out, name);
+    out = buffer.push(heap, out, byte_of(40));
+    out = push_args(heap, out, args);
+    out = buffer.append(heap, out, if_bool(is_bool));
+    out = buffer.append(heap, out, "o_");
+    out = buffer.append(heap, out, name);
+    out = buffer.push(heap, out, byte_of(40));
+    out = push_args(heap, out, args);
+    out = buffer.append(heap, out, "));  return 0; }\n");
+    return out;
+}
+
+fn if_bool(is_bool: bool) -> [] &static [byte] {
+    if is_bool {
+        return ") == ";
+    }
+    return "), ";
+}
+
+// "5 -3" as "5, (-3)".
+fn push_args[&h, &a](heap: &!h Heap, into: buffer.Buffer, args: &a [byte]) -> [heap] buffer.Buffer {
+    var out = into;
+    let n = bytes.count_byte(args, 32) + 1;
+    var j = 1;
+    while j <= n {
+        if j > 1 {
+            out = buffer.append(heap, out, ", ");
+        }
+        out = text.push_int(heap, out, text.parse_int(bytes.field(args, 32, j)));
+        j = j + 1;
+    }
+    return out;
+}
+
+// The whole test source, and how many cases the task has. `only` >= 0 keeps just that case (to grade a trapping task one by one).
+pub fn compose[&h, &s, &c, &o](heap: &!h Heap, spec: &s [byte], cand: &c [byte], oracle: &o [byte], only: int) -> [heap] (buffer.Buffer, int) {
+    var out = buffer.append(heap, buffer.empty(heap, 8192), "edition 7;\nmodule audit;\nimport std.test;\n");
+    out = wrap_into(heap, out, cand);
+    out = wrap_into(heap, out, oracle);
+    let name = spec_value(spec, "name:");
+    let is_bool = bytes.equal(spec_value(spec, "ret:"), "bool");
+    let n = text.line_count(spec);
+    var k = 1;
+    var cases = 0;
+    while k <= n {
+        let args = text.after(text.line(spec, k), "case:");
+        k = k + 1;
+        if len(args) > 0 {
+            if only < 0 || only == cases {
+                out = test_fn(heap, out, name, is_bool, args, cases);
+            }
+            cases = cases + 1;
+        }
+    }
+    return (out, cases);
+}
+
+// The value of the first `key` line of the spec ("name:"), or an empty slice.
+pub fn spec_value[&s](spec: &s [byte], key: &static [byte]) -> [] &s [byte] {
+    let n = text.line_count(spec);
+    var k = 1;
+    while k <= n {
+        let v = text.after(text.line(spec, k), key);
+        if len(v) > 0 {
+            return v;
+        }
+        k = k + 1;
+    }
+    return spec[0..0];
+}
+
+// The digits just before the first " passed;" in the runner's summary, or -1 when there is none.
+fn passed_count[&o](out: &o [byte]) -> [] int {
+    let at = bytes.find(out, " passed;");
+    if at < 0 {
+        return 0 - 1;
+    }
+    var j = at;
+    while j > 0 && bytes.is_digit(int_of(out[j - 1])) {
+        j = j - 1;
+    }
+    if j == at {
+        return 0 - 1;
+    }
+    return text.parse_int(out[j..at]);
+}
+
+// The first line that says "error", cut to 160 bytes.
+fn first_error[&h, &o](heap: &!h Heap, out: &o [byte]) -> [heap] buffer.Buffer {
+    let at = bytes.find(out, "error");
+    if at < 0 {
+        return buffer.empty(heap, 16);
+    }
+    var s = at;
+    while s > 0 && int_of(out[s - 1]) != 10 {
+        s = s - 1;
+    }
+    var e = at;
+    while e < len(out) && int_of(out[e]) != 10 && e - s < 160 {
+        e = e + 1;
+    }
+    return buffer.append(heap, buffer.empty(heap, 192), out[s..e]);
+}
+
+// What one run of `cancho test` came to is (status, tests passed, detail).
+// Run `cancho test <file>` under `ulimit -t cpu` and a wall deadline of `timeout` ms. The command is one `sh -c` argument; the child
+// leads a process group of its own, so a deadline kills what the compiler started too.
+pub fn run_test[&h, &x, &c, &p, &f](heap: &!h Heap, exec: &x Exec(""), clock: &c Clock, cancho: &p [byte], file: &f [byte], cpu: int, timeout: int) -> [heap, exec(""), exec_detached, clock, poll] (int, int, buffer.Buffer) {
+    var cmd = buffer.append(heap, buffer.empty(heap, 256), "-c\0ulimit -t ");
+    cmd = buffer.push_nat(heap, cmd, cpu);
+    cmd = buffer.append(heap, cmd, "; exec ");
+    cmd = buffer.append(heap, cmd, cancho);
+    cmd = buffer.append(heap, cmd, " test ");
+    cmd = buffer.append(heap, cmd, file);
+    cmd = buffer.append(heap, cmd, " --std --backend cranelift 2>&1\0");
+    var result = (1, 0, buffer.append(heap, buffer.empty(heap, 64), "could not start the compiler"));
+    match process.channels() {
+        process.Channels::Failed(e) => {
+        }
+        process.Channels::Ok(to_child, child_in, from_child, child_out) => {
+            borrow cmd as &cb in {
+                match exec_spawn_detached(exec, "/bin/sh", buffer.bytes(cb), "PATH=/usr/bin:/bin\0", Stdio::Pipe(child_in), Stdio::Pipe(child_out), Stdio::Null) {
+                    Spawned::Failed(e) => {
+                        process.close(to_child, from_child);
+                    }
+                    Spawned::Ok(child) => {
+                        let (out, ran) = process.capture(heap, clock, child, to_child, from_child, "", 4000000, timeout);
+                        let (status, passed, detail) = result;
+                        buffer.drop(heap, detail);
+                        var st = 2;
+                        var n = 0 - 1;
+                        var why = buffer.empty(heap, 16);
+                        match ran {
+                            process.Ran::TimedOut => {
+                                st = 3;
+                                buffer.drop(heap, why);
+                                why = buffer.append(heap, buffer.empty(heap, 16), "timed out");
+                            }
+                            process.Ran::TooMuch => {
+                                st = 2;
+                                buffer.drop(heap, why);
+                                why = buffer.append(heap, buffer.empty(heap, 16), "too much output");
+                            }
+                            process.Ran::Failed(e) => {
+                                st = 2;
+                            }
+                            process.Ran::Signaled(s) => {
+                                st = 2;
+                                buffer.drop(heap, why);
+                                why = buffer.append(heap, buffer.empty(heap, 16), "killed by a signal (cpu limit or crash)");
+                            }
+                            process.Ran::Code(code) => {
+                                borrow out as &ob in {
+                                    n = passed_count(buffer.bytes(ob));
+                                    if n >= 0 {
+                                        st = 0;
+                                    } else if bytes.find(buffer.bytes(ob), "error") >= 0 {
+                                        st = 1;
+                                        buffer.drop(heap, why);
+                                        why = first_error(heap, buffer.bytes(ob));
+                                    }
+                                }
+                            }
+                        }
+                        buffer.drop(heap, out);
+                        if n < 0 {
+                            n = 0;
+                        }
+                        result = (st, n, why);
+                    }
+                }
+            }
+        }
+    }
+    buffer.drop(heap, cmd);
+    return result;
+}

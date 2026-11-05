@@ -1,0 +1,6 @@
+edition 7;
+
+fn o_popcount(n: int) -> [] int {
+    if n == 0 { return 0; }
+    return n % 2 + o_popcount(n / 2);
+}
