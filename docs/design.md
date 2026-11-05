@@ -328,3 +328,20 @@ Built (cancho, edition 9 for `exec_spawn_detached`): `lib/rl/text.cho` (file rea
 * **[measured] Heap use** (`probes/heap_grab.cho`: `fib` declared `[heap]`): refused at build time, `declares heap but never performs it`; and a candidate that did perform it would need a `Heap` argument that the test (`fib(n)` with plain ints) does not give it. A candidate's effect row is `[]`, so it cannot allocate on the heap, open a file or reach the network by language rule, not by a limit.
 * **Reading:** the memory the grader's children can use is bounded by the stack size and the compiler's own working set (36 MB here), not by an `RLIMIT`. This closes the "[unknown] memory limit" of section 14 for the task family of this set (integer functions). It does **not** cover a task family whose candidates take a heap or an effect: those need a real memory limit before they are graded, and the macOS CPU limit (`ulimit -t` ineffective, section 14) is still open; the wall deadline is what works.
 * **Gate:** both probes are in `scripts/gate.sh` (`deep_recursion` ok/0, `heap_grab` build_error/0).
+
+## 27. R1: the torch/peft reference run (measured, 2026-11-05)
+
+* **What ran** (`scripts/r1_grpo.py`, torch 2.12 and peft 0.21 on MPS, a comparison helper; rewards from `rl grade`): GRPO with LoRA (rank 16, alpha 32, q/k/v/o), Qwen2.5-1.5B-Instruct in bf16, primer v2 with the chat template, 40 iterations of 4 tasks x 8 samples, temperature 0.8, 400 new tokens, group-normalised advantages (a group with equal rewards contributes nothing), token-mean loss over the completion, one update per batch (so the policy-gradient loss is exact, no clipping and no KL term), AdamW 1e-4, gradient clip 1. Training tasks: the 44 train-side tasks the base model solved at least once in the s1 to s8 runs; evaluation: all 28 held-out tasks, 4 samples each, every 10 iterations. Seeds 1 and 2. Logs: `docs/r1/seed1.jsonl`, `docs/r1/seed2.jsonl`. Wall time: 132 and 160 minutes of training steps plus 17 and 14 of evaluation.
+* **[measured] The held-out solve rate** (mean over the 28 tasks of the per-task rate, same sampler at every point):
+
+| step | seed 1 | seed 2 |
+|---|---|---|
+| 0 (base) | 10.7% | 7.1% |
+| 10 | 23.2% | 34.8% |
+| 20 | 40.2% | 43.8% |
+| 30 | 40.2% | 34.8% |
+| 40 | 38.4% | 48.2% |
+
+* **The exit criterion of R1** (above the base by more than the spread of two seeds): the seeds differ by 9.8 points at step 40 (38.4 and 48.2); the rise over the base is 27.7 points (seed 1) and 41.1 points (seed 2). Per-task, no held-out task got worse in either seed (seed 1: 13 up, 15 unchanged; seed 2: 18 up, 10 unchanged). Bootstrap over the 28 tasks (cancho-stats, 95%, seed 1, 4000 replicates) of the mean per-task rise: seed 1 27.7 points [15.2, 42.0]; seed 2 41.1 points [27.7, 56.3]. **R1's exit is met**, with the caveats below.
+* **Caveats, so the number is not read as more than it is:** (1) two seeds, so "the spread of two seeds" is itself a rough estimate; the base differs between the seeds by 3.6 points on identical weights, which is sampling noise at 4 samples per task; (2) the curve rises over the first 20 iterations and then moves within about 10 points up and down, so "after 40 iterations" is not a converged figure; (3) the held-out tasks are 28 hand-written integer functions of the same family as the training tasks, so this says the reward trains a model on this family, not that the model got better at cancho in general; (4) training tasks were chosen because the base solved them at least once, which is the choice the zero-signal tasks forced, and it is a property of the training set, not the held-out one; (5) the trained outputs were not checked against the hacking probes' shapes (an `if n == K` special case would score on a case that hidden cases do not repeat, but the held-out cases do contain such values); that check is still to do before a curve is called "learning to program".
+* **What this gives R2 to R4:** the numbers to equal: the held-out curve of two seeds, 130 to 160 training minutes per 40 iterations on this machine, and the per-iteration breakdown in the logs (`gen_secs` against `secs`).
