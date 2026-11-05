@@ -1,0 +1,10 @@
+edition 7;
+
+fn o_rev(n: int, acc: int) -> [] int {
+    if n == 0 { return acc; }
+    return o_rev(n / 10, acc * 10 + n % 10);
+}
+
+fn o_is_palindrome_number(n: int) -> [] bool {
+    return o_rev(n, 0) == n;
+}

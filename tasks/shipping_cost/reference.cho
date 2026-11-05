@@ -1,0 +1,8 @@
+edition 7;
+
+fn shipping_cost(g: int) -> [] int {
+    if g <= 500 { return 5; }
+    if g <= 2000 { return 8; }
+    if g <= 5000 { return 12; }
+    return 20;
+}

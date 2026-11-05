@@ -1,0 +1,8 @@
+edition 7;
+
+fn is_pythagorean(a: int, b: int, c: int) -> [] bool {
+    let aa = a * a;
+    let bb = b * b;
+    let cc = c * c;
+    return aa + bb == cc || aa + cc == bb || bb + cc == aa;
+}

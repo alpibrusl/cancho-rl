@@ -1,0 +1,7 @@
+edition 7;
+
+fn o_is_pythagorean(a: int, b: int, c: int) -> [] bool {
+    if a * a + b * b == c * c { return true; }
+    if a * a + c * c == b * b { return true; }
+    return b * b + c * c == a * a;
+}

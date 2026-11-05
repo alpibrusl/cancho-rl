@@ -1,0 +1,11 @@
+edition 7;
+
+fn is_even_digit_sum(n: int) -> [] bool {
+    var m = n;
+    var s = 0;
+    while m > 0 {
+        s = s + m % 10;
+        m = m / 10;
+    }
+    return s % 2 == 0;
+}

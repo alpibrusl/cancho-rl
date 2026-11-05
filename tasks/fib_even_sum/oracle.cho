@@ -1,0 +1,12 @@
+edition 7;
+
+fn o_fes(a: int, b: int, limit: int) -> [] int {
+    if a > limit { return 0; }
+    var here = 0;
+    if a % 2 == 0 { here = a; }
+    return here + o_fes(b, a + b, limit);
+}
+
+fn o_fib_even_sum(limit: int) -> [] int {
+    return o_fes(1, 2, limit);
+}

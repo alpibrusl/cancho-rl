@@ -1,0 +1,11 @@
+edition 7;
+
+fn power(b: int, e: int) -> [] int {
+    var r = 1;
+    var k = 0;
+    while k < e {
+        r = r * b;
+        k = k + 1;
+    }
+    return r;
+}

@@ -1,0 +1,6 @@
+edition 7;
+
+fn o_power(b: int, e: int) -> [] int {
+    if e == 0 { return 1; }
+    return b * o_power(b, e - 1);
+}
