@@ -1,0 +1,15 @@
+edition 7;
+
+fn steps_to_zero(n: int) -> [] int {
+    var m = n;
+    var steps = 0;
+    while m > 0 {
+        if m % 2 == 0 {
+            m = m / 2;
+        } else {
+            m = m - 1;
+        }
+        steps = steps + 1;
+    }
+    return steps;
+}

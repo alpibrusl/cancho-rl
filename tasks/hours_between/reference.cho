@@ -1,0 +1,5 @@
+edition 7;
+
+fn hours_between(a: int, b: int) -> [] int {
+    return (b - a + 24) % 24;
+}

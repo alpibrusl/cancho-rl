@@ -1,0 +1,7 @@
+edition 7;
+
+fn o_steps_to_zero(n: int) -> [] int {
+    if n == 0 { return 0; }
+    if n % 2 == 0 { return 1 + o_steps_to_zero(n / 2); }
+    return 1 + o_steps_to_zero(n - 1);
+}

@@ -1,0 +1,8 @@
+edition 7;
+
+fn o_cmp3(a: int, b: int) -> [] int {
+    let d = a - b;
+    if d < 0 { return 0 - 1; }
+    if d > 0 { return 1; }
+    return 0;
+}

@@ -1,0 +1,9 @@
+edition 7;
+
+fn max4(a: int, b: int, c: int, d: int) -> [] int {
+    var m = a;
+    if b > m { m = b; }
+    if c > m { m = c; }
+    if d > m { m = d; }
+    return m;
+}

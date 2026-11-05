@@ -1,0 +1,9 @@
+edition 7;
+
+fn o_is_sorted_digits(n: int) -> [] bool {
+    if n < 10 { return true; }
+    let last = n % 10;
+    let before = (n / 10) % 10;
+    if before > last { return false; }
+    return o_is_sorted_digits(n / 10);
+}

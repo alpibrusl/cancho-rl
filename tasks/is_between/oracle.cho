@@ -1,0 +1,7 @@
+edition 7;
+
+fn o_is_between(x: int, lo: int, hi: int) -> [] bool {
+    if x < lo { return false; }
+    if x > hi { return false; }
+    return true;
+}

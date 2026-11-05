@@ -1,0 +1,10 @@
+edition 7;
+
+fn o_grade_code(score: int) -> [] int {
+    var code = 0;
+    if score >= 60 { code = 1; }
+    if score >= 70 { code = 2; }
+    if score >= 80 { code = 3; }
+    if score >= 90 { code = 4; }
+    return code;
+}

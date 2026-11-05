@@ -1,0 +1,8 @@
+edition 7;
+
+fn o_ticket_price(age: int) -> [] int {
+    if age >= 65 { return 15; }
+    if age >= 18 { return 20; }
+    if age >= 5 { return 10; }
+    return 0;
+}

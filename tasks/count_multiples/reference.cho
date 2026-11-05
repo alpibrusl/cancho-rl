@@ -1,0 +1,11 @@
+edition 7;
+
+fn count_multiples(n: int, k: int) -> [] int {
+    var count = 0;
+    var m = k;
+    while m <= n {
+        count = count + 1;
+        m = m + k;
+    }
+    return count;
+}

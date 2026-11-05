@@ -1,0 +1,5 @@
+edition 7;
+
+fn o_count_multiples(n: int, k: int) -> [] int {
+    return n / k;
+}

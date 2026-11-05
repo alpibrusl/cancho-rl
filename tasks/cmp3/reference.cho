@@ -1,0 +1,7 @@
+edition 7;
+
+fn cmp3(a: int, b: int) -> [] int {
+    if a < b { return 0 - 1; }
+    if a == b { return 0; }
+    return 1;
+}

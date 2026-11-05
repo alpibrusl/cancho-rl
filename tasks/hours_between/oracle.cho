@@ -1,0 +1,6 @@
+edition 7;
+
+fn o_hours_between(a: int, b: int) -> [] int {
+    if b >= a { return b - a; }
+    return b + 24 - a;
+}
