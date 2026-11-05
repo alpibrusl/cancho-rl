@@ -1,0 +1,9 @@
+edition 7;
+
+fn o_leaps_upto(y: int) -> [] int {
+    return y / 4 - y / 100 + y / 400;
+}
+
+fn o_leap_years_between(a: int, b: int) -> [] int {
+    return o_leaps_upto(b) - o_leaps_upto(a - 1);
+}

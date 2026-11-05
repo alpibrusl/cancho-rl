@@ -1,0 +1,17 @@
+edition 7;
+
+fn day_of_year(m: int, d: int) -> [] int {
+    var total = d;
+    var k = 1;
+    while k < m {
+        if k == 2 {
+            total = total + 28;
+        } else if k == 4 || k == 6 || k == 9 || k == 11 {
+            total = total + 30;
+        } else {
+            total = total + 31;
+        }
+        k = k + 1;
+    }
+    return total;
+}

@@ -1,0 +1,11 @@
+edition 7;
+
+fn o_is_triangle_number(n: int) -> [] bool {
+    var k = 0;
+    var t = 0;
+    while t < n {
+        k = k + 1;
+        t = t + k;
+    }
+    return t == n;
+}

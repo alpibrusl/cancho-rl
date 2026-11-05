@@ -1,0 +1,11 @@
+edition 7;
+
+fn lowest_set_bit(n: int) -> [] int {
+    var m = n;
+    var p = 1;
+    while m % 2 == 0 {
+        m = m / 2;
+        p = p * 2;
+    }
+    return p;
+}

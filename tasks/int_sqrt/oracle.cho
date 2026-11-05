@@ -1,0 +1,15 @@
+edition 7;
+
+fn o_int_sqrt(n: int) -> [] int {
+    var lo = 0;
+    var hi = 40000;
+    while lo < hi {
+        let mid = (lo + hi + 1) / 2;
+        if mid * mid <= n {
+            lo = mid;
+        } else {
+            hi = mid - 1;
+        }
+    }
+    return lo;
+}

@@ -1,0 +1,11 @@
+edition 7;
+
+fn catalan(n: int) -> [] int {
+    var c = 1;
+    var k = 0;
+    while k < n {
+        c = c * 2 * (2 * k + 1) / (k + 2);
+        k = k + 1;
+    }
+    return c;
+}

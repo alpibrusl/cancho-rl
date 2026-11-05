@@ -1,0 +1,7 @@
+edition 7;
+
+fn o_square_sum_diff(n: int) -> [] int {
+    let s = n * (n + 1) / 2;
+    let sq = n * (n + 1) * (2 * n + 1) / 6;
+    return s * s - sq;
+}

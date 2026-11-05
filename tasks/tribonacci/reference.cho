@@ -1,0 +1,16 @@
+edition 7;
+
+fn tribonacci(n: int) -> [] int {
+    var a = 0;
+    var b = 0;
+    var c = 1;
+    var i = 0;
+    while i < n {
+        let next = a + b + c;
+        a = b;
+        b = c;
+        c = next;
+        i = i + 1;
+    }
+    return a;
+}

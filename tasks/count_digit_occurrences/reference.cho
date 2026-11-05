@@ -1,0 +1,15 @@
+edition 7;
+
+fn count_digit_occurrences(n: int, d: int) -> [] int {
+    var m = n;
+    var c = 0;
+    if m == 0 {
+        if d == 0 { return 1; }
+        return 0;
+    }
+    while m > 0 {
+        if m % 10 == d { c = c + 1; }
+        m = m / 10;
+    }
+    return c;
+}

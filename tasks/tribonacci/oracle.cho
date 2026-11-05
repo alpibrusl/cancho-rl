@@ -1,0 +1,7 @@
+edition 7;
+
+fn o_tribonacci(n: int) -> [] int {
+    if n < 2 { return 0; }
+    if n == 2 { return 1; }
+    return o_tribonacci(n - 1) + o_tribonacci(n - 2) + o_tribonacci(n - 3);
+}

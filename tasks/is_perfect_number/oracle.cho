@@ -1,0 +1,11 @@
+edition 7;
+
+fn o_is_perfect_number(n: int) -> [] bool {
+    var s = 0;
+    var d = 1;
+    while d < n {
+        if n % d == 0 { s = s + d; }
+        d = d + 1;
+    }
+    return s == n && n > 1;
+}

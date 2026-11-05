@@ -1,0 +1,21 @@
+edition 7;
+
+fn o_is_p(n: int) -> [] bool {
+    if n < 2 { return false; }
+    var d = 2;
+    while d * d <= n {
+        if n % d == 0 { return false; }
+        d = d + 1;
+    }
+    return true;
+}
+
+fn o_count_primes_upto(n: int) -> [] int {
+    var c = 0;
+    var k = 2;
+    while k <= n {
+        if o_is_p(k) { c = c + 1; }
+        k = k + 1;
+    }
+    return c;
+}

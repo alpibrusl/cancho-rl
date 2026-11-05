@@ -1,0 +1,84 @@
+name: count_digit_occurrences
+ret: int
+sig: fn count_digit_occurrences(n: int, d: int) -> [] int
+desc: How many times the decimal digit d appears in the decimal form of n. n = 0 has one digit, 0. Domain: 0 <= n <= 1000000000, 0 <= d <= 9.
+example: count_digit_occurrences(1213, 1) == 2
+example: count_digit_occurrences(500, 0) == 2
+example: count_digit_occurrences(7, 3) == 0
+case: 0 0
+case: 0 1
+case: 0 2
+case: 0 3
+case: 0 5
+case: 0 7
+case: 0 9
+case: 5 0
+case: 5 1
+case: 5 2
+case: 5 3
+case: 5 5
+case: 5 7
+case: 5 9
+case: 10 0
+case: 10 1
+case: 10 2
+case: 10 3
+case: 10 5
+case: 10 7
+case: 10 9
+case: 11 0
+case: 11 1
+case: 11 2
+case: 11 3
+case: 11 5
+case: 11 7
+case: 11 9
+case: 121 0
+case: 121 1
+case: 121 2
+case: 121 3
+case: 121 5
+case: 121 7
+case: 121 9
+case: 1000 0
+case: 1000 1
+case: 1000 2
+case: 1000 3
+case: 1000 5
+case: 1000 7
+case: 1000 9
+case: 1213 0
+case: 1213 1
+case: 1213 2
+case: 1213 3
+case: 1213 5
+case: 1213 7
+case: 1213 9
+case: 90909 0
+case: 90909 1
+case: 90909 2
+case: 90909 3
+case: 90909 5
+case: 90909 7
+case: 90909 9
+case: 123456 0
+case: 123456 1
+case: 123456 2
+case: 123456 3
+case: 123456 5
+case: 123456 7
+case: 123456 9
+case: 777777 0
+case: 777777 1
+case: 777777 2
+case: 777777 3
+case: 777777 5
+case: 777777 7
+case: 777777 9
+case: 1000000000 0
+case: 1000000000 1
+case: 1000000000 2
+case: 1000000000 3
+case: 1000000000 5
+case: 1000000000 7
+case: 1000000000 9
