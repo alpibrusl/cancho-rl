@@ -1,0 +1,6 @@
+edition 7;
+
+fn o_abs_val(x: int) -> [] int {
+    if x < 0 { return 0 - x; }
+    return x;
+}

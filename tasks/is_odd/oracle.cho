@@ -1,0 +1,5 @@
+edition 7;
+
+fn o_is_odd(n: int) -> [] bool {
+    return n % 2 != 0;
+}

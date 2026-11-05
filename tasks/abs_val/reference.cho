@@ -1,0 +1,6 @@
+edition 7;
+
+fn abs_val(x: int) -> [] int {
+    if x >= 0 { return x; }
+    return 0 - x;
+}

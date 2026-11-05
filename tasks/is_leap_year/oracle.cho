@@ -1,0 +1,7 @@
+edition 7;
+
+fn o_is_leap_year(y: int) -> [] bool {
+    if y % 4 != 0 { return false; }
+    if y % 100 != 0 { return true; }
+    return y % 400 == 0;
+}

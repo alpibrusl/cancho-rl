@@ -1,0 +1,11 @@
+edition 7;
+
+fn o_trailing_zeros_fact(n: int) -> [] int {
+    var total = 0;
+    var p = 5;
+    while p <= n {
+        total = total + n / p;
+        p = p * 5;
+    }
+    return total;
+}

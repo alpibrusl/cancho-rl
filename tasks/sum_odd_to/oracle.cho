@@ -1,0 +1,6 @@
+edition 7;
+
+fn o_sum_odd_to(n: int) -> [] int {
+    let k = (n + 1) / 2;
+    return k * k;
+}

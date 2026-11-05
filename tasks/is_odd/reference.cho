@@ -1,0 +1,7 @@
+edition 7;
+
+fn is_odd(n: int) -> [] bool {
+    var m = n;
+    if m < 0 { m = 0 - m; }
+    return m % 2 == 1;
+}

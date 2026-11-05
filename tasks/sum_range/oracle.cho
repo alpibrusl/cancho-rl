@@ -1,0 +1,5 @@
+edition 7;
+
+fn o_sum_range(a: int, b: int) -> [] int {
+    return (a + b) * (b - a + 1) / 2;
+}

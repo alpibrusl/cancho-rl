@@ -1,0 +1,12 @@
+edition 7;
+
+fn digit_product(n: int) -> [] int {
+    var m = n;
+    var p = 1;
+    if m == 0 { return 0; }
+    while m > 0 {
+        p = p * (m % 10);
+        m = m / 10;
+    }
+    return p;
+}

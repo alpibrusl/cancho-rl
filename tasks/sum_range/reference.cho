@@ -1,0 +1,11 @@
+edition 7;
+
+fn sum_range(a: int, b: int) -> [] int {
+    var s = 0;
+    var i = a;
+    while i <= b {
+        s = s + i;
+        i = i + 1;
+    }
+    return s;
+}

@@ -27,7 +27,13 @@ for t in $(ls tasks); do
     ./build/rl prompt prompts/primer.md "tasks/$t" | grep -q 'case:' && { echo "FAIL prompt leaks a case: $t"; fail=1; }
 done
 heldout=$(for t in $(ls tasks); do [ "$(./build/rl split "tasks/$t")" = heldout ] && echo "$t"; done | tr '\n' ' ')
-want="binomial ceil_div collatz_steps cube_root_floor digital_root factorial is_power_of_two median3 reverse_digits sign sum_to triangle_kind "
+# the same rule written independently in Python (a comparison helper): FNV-1a 32 bit over the task name, mod 4 == 0
+want=$(python3 -c 'import sys
+for n in sys.argv[1:]:
+    h = 2166136261
+    for b in n.encode():
+        h = ((h ^ b) * 16777619) % 4294967296
+    print(n) if h % 4 == 0 else None' $(ls tasks) | tr '\n' ' ')
 [ "$heldout" = "$want" ] || { echo "FAIL split: $heldout"; fail=1; }
 python3 scripts/crosscheck.py "$C" > work/crosscheck.txt 2>&1 || { echo "FAIL crosscheck"; grep DISAGREE work/crosscheck.txt; fail=1; }
 [ $fail = 0 ] && echo "gate: ok"
