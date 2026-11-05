@@ -234,16 +234,23 @@ fn prompt_command[&h, &i, &g, &f](heap: &!h Heap, io: &!i Io, args: &g Args, fs:
 
 // `rl report TASKDIR RESULTS...`: one JSON line per group (branch/train, branch/heldout, loop/train, loop/heldout, all) from the results files `rl grade` wrote:
 // {"group", "tasks", "samples", "solved", "rate", "zero", "window", "high"} (docs/design.md section 20).
-fn report_command[&h, &i, &g, &f](heap: &!h Heap, io: &!i Io, args: &g Args, fs: &f Fs("")) -> [heap, io_write, err_write, args, fs_read(""), file_read] int {
+// `rl tasks TASKDIR RESULTS...` is the same data per task, as CSV with a header: task,kind,side,samples,solved,rate (the input of `stats ci boot`).
+fn report_command[&h, &i, &g, &f](heap: &!h Heap, io: &!i Io, args: &g Args, fs: &f Fs(""), csv: bool) -> [heap, io_write, err_write, args, fs_read(""), file_read] int {
     if arg_count(args) < 4 {
+        if csv {
+            return refuse(heap, io, "rl.usage", "rl tasks TASKDIR RESULTS...");
+        }
         return refuse(heap, io, "rl.usage", "rl report TASKDIR RESULTS...");
     }
     var c = report.counters(heap);
+    var rows = buffer.append(heap, buffer.empty(heap, 4096), "task,kind,side,samples,solved,rate\n");
     var status = 0;
     var a = 3;
     while a < arg_count(args) && status == 0 {
         borrow mut c as &!cb in {
-            status = report.tally(heap, fs, arg(args, 2), arg(args, a), cb);
+            let (st, grown) = report.tally(heap, fs, arg(args, 2), arg(args, a), cb, rows);
+            status = st;
+            rows = grown;
         }
         a = a + 1;
     }
@@ -251,6 +258,10 @@ fn report_command[&h, &i, &g, &f](heap: &!h Heap, io: &!i Io, args: &g Args, fs:
         status = refuse(heap, io, "rl.task", "a task in the results has no readable task.spec, or its kind is neither branch nor loop");
     } else if status == 3 {
         status = refuse(heap, io, "rl.input", "a results file cannot be read");
+    } else if csv {
+        borrow rows as &rb in {
+            buffer.write(io, rb);
+        }
     } else {
         borrow c as &cr in {
             var gi = 0;
@@ -289,6 +300,7 @@ fn report_command[&h, &i, &g, &f](heap: &!h Heap, io: &!i Io, args: &g Args, fs:
             }
         }
     }
+    buffer.drop(heap, rows);
     vec.drop(heap, c);
     return status;
 }
@@ -313,9 +325,11 @@ fn main(world: World) -> [] int {
                             } else if arg_count(g) >= 2 && bytes.equal(arg(g, 1), "prompt") {
                                 status = prompt_command(h, i, g, f);
                             } else if arg_count(g) >= 2 && bytes.equal(arg(g, 1), "report") {
-                                status = report_command(h, i, g, f);
+                                status = report_command(h, i, g, f, false);
+                            } else if arg_count(g) >= 2 && bytes.equal(arg(g, 1), "tasks") {
+                                status = report_command(h, i, g, f, true);
                             } else {
-                                status = refuse(h, i, "rl.usage", "the commands are `rl grade`, `rl split`, `rl prompt` and `rl report`");
+                                status = refuse(h, i, "rl.usage", "the commands are `rl grade`, `rl split`, `rl prompt`, `rl report` and `rl tasks`");
                             }
                         }
                     }

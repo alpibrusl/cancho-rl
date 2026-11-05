@@ -271,7 +271,7 @@ Built (cancho, edition 9 for `exec_spawn_detached`): `lib/rl/text.cho` (file rea
 | all | 61 | 488 | 90 | 18% | 26 | 29 | 6 |
 
   The totals equal the earlier hand counts (90 of 488; 26, 29, 6). **Branch tasks sit at about 37% and loop tasks at about 11%**, and the held-out side is not easier than the train side within a kind (loop 8.8% against 11%; branch held out is higher, 44% against 31%, on 8 and 10 tasks, which is inside the noise of 8 samples). So the pooled 18% is a mix of two populations, and a held-out curve (R1) is to be reported by kind. Half of the loop/train tasks (18 of 33) are at 0 and give a policy-gradient step nothing until a sample builds.
-* **Not done:** an interval on any rate (the cancho-stats bootstrap is not used yet); a kind field for the 13 branch tasks that differ in difficulty; the held-out side has only 18 tasks, so a per-kind held-out number is a handful of tasks.
+* **Not done at the time (intervals: done in section 22):** an interval on any rate; a kind field for the 13 branch tasks that differ in difficulty; the held-out side has only 18 tasks, so a per-kind held-out number is a handful of tasks.
 
 ## 21. Batch 4: 19 tasks aimed at the window (80 in all), 2026-11-05
 
@@ -287,3 +287,23 @@ Built (cancho, edition 9 for `exec_spawn_detached`): `lib/rl/text.cho` (file rea
 | loop / held out | 11 | 88 | 7 | 8.0% | 5 | 6 | 0 |
 
 * **Reading:** the loop/held-out side is the thin one (11 tasks, 7 solved samples of 88): any curve on it is a few tasks and needs the interval from cancho-stats before it means anything. The set is now easier than a real coding eval by construction (small integer functions the author could write and an oracle could check); what it tests is whether a policy-gradient step can move a 1.5B model from Python-shaped to cancho-shaped code on such functions, not general coding.
+
+## 22. The sibling tools, wired (2026-11-05)
+
+* **What is used, pinned by commit** (`scripts/tools.sh` clones each repository at the commit and builds it into `work/tools/`): `stats` from cancho-stats `fbb34c8` (`stats ci boot`); `tally` and `hash` from cancho-tools `3399bd7`. Both repositories pin an older compiler (`de4e52f`) than this one (`5a5dd1f` here, `8812bd5` in `cancho.toml`), so the build passes `--ignore-compiler-rev`; they built and ran, and the checks below are on their output, not on that flag. `rl` itself stays dependency-free: the tools are programs `scripts/` calls, in the way section 14 allows for other frameworks as comparisons, and nothing in `lib/` or `tools/` imports them.
+* **`rl tasks TASKDIR RESULTS...`** (cancho) prints one CSV row per task, `task,kind,side,samples,solved,rate`, the input `stats` reads. `scripts/intervals.sh RESULTS...` turns it into a rate with a 95% interval per group (`stats ci boot --statistic mean --seed 1 --replicates 4000`), then the status counts (`tally --field 16 --delim '"'`, which counts the `status` value of each `rl grade` line; it depends on the field order `rl grade` writes, fixed in `tools/rl/main.cho`) and the sha256 of each results file (`hash`).
+* **The interval's unit is the task**, not the sample: the eight samples of one task are not independent draws of "the model's success", so the bootstrap resamples tasks and the statistic is the mean over tasks of the per-task solve rate. What it covers: sampling noise of 8 samples and the spread between tasks. What it does not: the tasks are hand-written, not a random draw from some population of coding tasks, so the interval is about *these* tasks, and says nothing about other problems.
+* **[measured] The base rate with intervals** (Qwen2.5-1.5B-Instruct, primer v2, runs s2 to s6, 640 samples; results sha256 in the table's footer):
+
+| group | tasks | mean rate | 95% interval |
+|---|---|---|---|
+| all | 80 | 23.1% | 17.3 to 29.7% |
+| branch / train | 17 | 41.2% | 25.7 to 58.1% |
+| branch / held out | 12 | 45.8% | 27.1 to 64.6% |
+| loop / train | 40 | 12.8% | 7.5 to 19.1% |
+| loop / held out | 11 | 8.0% | 3.4 to 12.5% |
+
+  Statuses over the 640 samples: 414 build errors, 221 built and ran, 5 timeouts. Results files: s2 `a449c149`, s3 `90994b20`, s4 `0b2dd7fc`, s5 `ebbb5b20`, s6 `fe771636` (first eight hex digits of the sha256 of each). The held-out branch and train intervals overlap almost entirely (the split is not easier on one side), and loop held out is below branch held out with no overlap: the difference between kinds is real at this sample size; any difference between the train and held-out sides of one kind is not.
+* **Checks** (`GATE_TOOLS=1 scripts/gate.sh`, needs `scripts/tools.sh` first): the interval's estimate equals the mean of the rate column computed with `awk` (watched failing with the wrong column), and four equal rates give an interval of one point. The `rl tasks` fixture check is part of the normal gate.
+* **cancho-tools `run` was looked at and not adopted.** It runs a program with exact arguments, a fixed environment, a deadline and an output cap, and kills the child at the deadline; its own document says it does not make a process group (no `setsid`, section 3.6 there), and the grader's `run_test` already does the deadline, the output cap and a kill of the whole group (the compiler's children too), so `run` would be weaker for this use. Neither has a memory limit (the unmeasured item of section 15 stays).
+* **Not done:** the held-out curve over training (R1) is the first user of these intervals; `stats` could also compare two runs (`resample perm`) once there are two; the other cancho-tools (`write`, `jsonq`, `peek`) have no use yet.

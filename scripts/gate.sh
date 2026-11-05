@@ -53,6 +53,25 @@ want_report='{"group":"branch/train","tasks":1,"samples":2,"solved":1,"rate":0.5
 ./build/rl report 2>&1 | grep -q '"rl.usage"' || { echo "FAIL report refusal rl.usage"; fail=1; }
 echo '{"id":"no_such_task","solved":true}' > work/report_bad.jsonl
 ./build/rl report tasks work/report_bad.jsonl 2>&1 | grep -q '"rl.task"' || { echo "FAIL report refusal rl.task"; fail=1; }
+# `rl tasks` on the same fixture: one CSV row per task (the input of `stats ci boot`)
+./build/rl tasks tasks probes/report_fixture.jsonl > work/tasks.out
+want_tasks='task,kind,side,samples,solved,rate
+abs_val,branch,train,2,1,0.500000
+gcd,loop,train,3,0,0.000000'
+[ "$(cat work/tasks.out)" = "$want_tasks" ] || { echo "FAIL tasks fixture"; fail=1; }
+# the sibling tools (GATE_TOOLS=1, needs scripts/tools.sh): the interval's estimate is the mean of the rate column computed here with awk,
+# and a column of equal rates has an interval of one point
+if [ "${GATE_TOOLS:-0}" = 1 ]; then
+    [ -x work/tools/stats ] || { echo "FAIL GATE_TOOLS=1 but work/tools/stats is not built"; exit 1; }
+    ./build/rl tasks tasks work/s2/results.jsonl > work/tasks_s2.csv 2>/dev/null || true
+    if [ -s work/tasks_s2.csv ]; then
+        est=$(work/tools/stats ci boot work/tasks_s2.csv --cols rate --statistic mean --seed 1 --replicates 1000 --level 0.95 | sed -n 's/.*"estimate":\([0-9.]*\),"low".*/\1/p' | head -1)
+        mean=$(awk -F, 'NR>1{s+=$6;n++} END{printf "%.6f", s/n}' work/tasks_s2.csv)
+        [ "$(printf '%.6f' "$est")" = "$mean" ] || { echo "FAIL stats estimate $est is not the awk mean $mean"; fail=1; }
+    fi
+    printf 'task,rate\na,0.5\nb,0.5\nc,0.5\nd,0.5\n' > work/flat.csv
+    work/tools/stats ci boot work/flat.csv --cols rate --statistic mean --seed 1 --replicates 500 --level 0.95 | grep -q '"low":0.5,"high":0.5' || { echo "FAIL equal rates do not collapse"; fail=1; }
+fi
 python3 scripts/crosscheck.py "$C" > work/crosscheck.txt 2>&1 || { echo "FAIL crosscheck"; grep DISAGREE work/crosscheck.txt; fail=1; }
 [ $fail = 0 ] && echo "gate: ok"
 exit $fail
