@@ -15,6 +15,10 @@ def say(ok, text):
     print(("ok   " if ok else "FAIL ") + text)
     bad += 0 if ok else 1
 
+def load(path, dtype, shape):
+    a = np.fromfile(path, dtype=dtype)
+    return a.reshape(shape) if a.size == int(np.prod(shape)) else np.zeros(0)
+
 def run(args):
     return subprocess.run([RL, "pack"] + args, capture_output=True, text=True)
 
@@ -32,12 +36,13 @@ def expected(samples, nb, t, pad):
             adv[lo:hi] = (r - r.mean()) / (r.std(ddof=1) + 1e-4)
     keep = [k for k in range(len(samples)) if adv[k] != 0]
     n = sum(len(samples[k]["completion"]) for k in keep)
-    tok = np.full((nb, t), pad, dtype="<i4"); w = np.zeros((nb, t))
+    K = max(1, -(-len(keep) // nb))
+    tok = np.full((K * nb, t), pad, dtype="<i4"); w = np.zeros((K * nb, t))
     for row, k in enumerate(keep):
         p, c = samples[k]["prompt"], samples[k]["completion"]
         tok[row, :len(p) + len(c)] = p + c
         w[row, len(p) - 1:len(p) + len(c) - 1] = adv[k] * nb * (t - 1) / n
-    return tok, w, len(keep), n
+    return tok.reshape(K, nb, t), w.reshape(K, nb, t), len(keep), n
 
 def sample(rng, group, reward, t):
     p = int(rng.integers(3, 20)); c = int(rng.integers(2, 25))
@@ -53,9 +58,9 @@ path = os.path.join(d, "s.jsonl")
 open(path, "w").write("\n".join(json.dumps(s) for s in S) + "\n")
 done = run([path, os.path.join(d, "out"), str(nb), str(t), str(pad)])
 tok, w, kept, n = expected(S, nb, t, pad)
-say(done.returncode == 0 and json.loads(done.stdout) == {"samples": len(S), "kept": kept, "completion_tokens": n}, f"the summary: {done.stdout.strip()} (expected kept {kept}, tokens {n})")
-got_t = np.fromfile(os.path.join(d, "out.tokens.i32"), dtype="<i4").reshape(nb, t)
-got_w = np.fromfile(os.path.join(d, "out.weights.f64"), dtype="<f8").reshape(nb, t)
+say(done.returncode == 0 and json.loads(done.stdout) == {"samples": len(S), "kept": kept, "batches": tok.shape[0], "completion_tokens": n}, f"the summary: {done.stdout.strip()} (expected kept {kept}, tokens {n})")
+got_t = load(os.path.join(d, "out.tokens.i32"), "<i4", tok.shape)
+got_w = load(os.path.join(d, "out.weights.f64"), "<f8", tok.shape)
 say(np.array_equal(got_t, tok), "the tokens are the kept samples' prompt + completion, padded, rows after them all pad")
 say(np.allclose(got_w, w, rtol=1e-12, atol=0) and np.array_equal(got_w == 0, w == 0), f"the weights equal advantage x nb (t - 1) / N on completion targets, else 0 (largest relative difference {np.max(np.abs(got_w - w) / np.maximum(np.abs(w), 1e-300)):.1e})")
 say(float(w[w != 0].max()) > 0 and float(w[w != 0].min()) < 0, "both signs occur (a failed and a solved completion)")
@@ -78,7 +83,7 @@ def big(name, groups, per, plen, clen, nb_, t_):
     tk, ww, kp, nn = expected(S2, nb_, t_, pad)
     ok = r.returncode == 0 and json.loads(r.stdout)["kept"] == kp
     if ok and kp:
-        ok = np.array_equal(np.fromfile(os.path.join(d, name + ".tokens.i32"), dtype="<i4").reshape(nb_, t_), tk) and np.allclose(np.fromfile(os.path.join(d, name + ".weights.f64")).reshape(nb_, t_), ww, rtol=1e-12, atol=0)
+        ok = np.array_equal(load(os.path.join(d, name + ".tokens.i32"), "<i4", tk.shape), tk) and np.allclose(load(os.path.join(d, name + ".weights.f64"), "<f8", ww.shape), ww, rtol=1e-12, atol=0)
     say(ok, f"{name}: {len(S2)} samples of {plen}+{clen} tokens, kept {kp} (exit {r.returncode}{' ' + r.stderr.strip()[:80] if r.returncode else ''})")
 
 big("long lines", 1, 4, 700, 400, 4, 1152)
@@ -90,7 +95,14 @@ def refuses(name, rule, samples_text, nb_=nb, t_=t, args=None):
     say(r.returncode == 2 and f'"{rule}"' in r.stderr, f"refusal {rule}: {name} (exit {r.returncode})")
 
 line = lambda s: json.dumps(s) + "\n"
-refuses("more kept than rows", "rl.pack.overflow", "".join(line(s) for s in S), nb_=2)
+# more kept samples than rows: several batches, the last padded, N over all of them
+p3 = os.path.join(d, "multi.jsonl"); open(p3, "w").write("".join(line(s) for s in S))
+r3 = run([p3, os.path.join(d, "multi"), "5", str(t), str(pad)])
+tk3, w3, kp3, n3 = expected(S, 5, t, pad)
+g3t = load(os.path.join(d, "multi.tokens.i32"), "<i4", tk3.shape)
+g3w = load(os.path.join(d, "multi.weights.f64"), "<f8", w3.shape)
+say(r3.returncode == 0 and json.loads(r3.stdout)["batches"] == tk3.shape[0] > 1 and np.array_equal(g3t, tk3) and np.allclose(g3w, w3, rtol=1e-12, atol=0), f"{kp3} kept samples in {tk3.shape[0]} batches of 5 rows: tokens equal, weights equal with N over all batches")
+say(g3w.size == w3.size and int((g3w.reshape(-1, t).sum(1) != 0).sum()) == kp3, "and exactly the kept rows carry weight")
 refuses("a sample longer than t", "rl.pack.long", "".join(line(sample(rng, "g", r, t)) for r in (0, 1)), t_=8)
 refuses("not json", "rl.pack.sample", "not json\n")
 refuses("a token that is not an integer", "rl.pack.sample", line({"group": "g", "reward": 1, "prompt": [1.5], "completion": [2]}))

@@ -1,0 +1,113 @@
+edition 9;
+
+module rl.adamw;
+
+// The optimiser step of one update, on the host (docs/design.md section 33): the gradients of the K micro-batches summed, their global norm clipped, AdamW applied to the
+// adapters. Every array is a flat binary64 little-endian file (the adapters in `qsw write --adapters` order, the gradients as `qsw split` writes them), so this knows nothing of
+// the model. It is `torch.optim.AdamW` after `torch.nn.utils.clip_grad_norm_` (the non-amsgrad, single-tensor update; scripts/adamw_check.py compares them):
+//
+//     g = g_1 + ... + g_K                      (left to right)
+//     norm = sqrt(sum g^2);  g = g x min(1, clip / (norm + 1e-6))
+//     p = p (1 - lr wd);  m = m + (1 - b1)(g - m);  v = v b2 + (1 - b2) g g
+//     p = p - lr / (1 - b1^t) m / (sqrt(v) / sqrt(1 - b2^t) + eps)
+
+import std.buffer;
+import std.math;
+
+pub struct Hyper {
+    step: int,
+    lr: float,
+    b1: float,
+    b2: float,
+    eps: float,
+    wd: float,
+    clip: float,
+}
+
+fn word[&b](data: &b [byte], at: int) -> [] float {
+    var v = 0;
+    var i = 7;
+    while i >= 0 {
+        v = v << 8 | int_of(data[at + i]);
+        i = i - 1;
+    }
+    return float_of_bits(v);
+}
+
+fn put[&h](heap: &!h Heap, out: buffer.Buffer, x: float) -> [heap] buffer.Buffer {
+    var b = out;
+    let w = bits_of(x);
+    var i = 0;
+    while i < 8 {
+        b = buffer.push(heap, b, byte_of(w >> 8 * i & 255));
+        i = i + 1;
+    }
+    return b;
+}
+
+// The elementwise sum of two arrays of the same length.
+pub fn add[&h, &a, &b](heap: &!h Heap, x: &a [byte], y: &b [byte]) -> [heap] buffer.Buffer {
+    var out = buffer.empty(heap, len(x) + 8);
+    var i = 0;
+    while i < len(x) {
+        out = put(heap, out, word(x, i) + word(y, i));
+        i = i + 8;
+    }
+    return out;
+}
+
+// The global norm of an array: the square root of the sum of squares.
+pub fn norm[&a](g: &a [byte]) -> [] float {
+    var s = 0.0;
+    var i = 0;
+    while i < len(g) {
+        let x = word(g, i);
+        s = s + x * x;
+        i = i + 8;
+    }
+    return sqrt(s);
+}
+
+// The factor the gradients are multiplied by: min(1, clip / (norm + 1e-6)), as clip_grad_norm_ computes it; 1 when clipping is off (clip <= 0).
+pub fn coefficient(norm_: float, clip: float) -> [] float {
+    if !(clip > 0.0) {
+        return 1.0;
+    }
+    let c = clip / (norm_ + 0.000001);
+    if c < 1.0 {
+        return c;
+    }
+    return 1.0;
+}
+
+// The updated (parameters, first moments, second moments). `m1` and `v1` are the moments after `hy.step - 1` updates, or ignored (zeros) when `fresh`; `g` the summed gradient.
+pub fn update[&h, &p, &m, &v, &g](heap: &!h Heap, hy: Hyper, params: &p [byte], m1: &m [byte], v1: &v [byte], g: &g [byte], coef: float, fresh: bool) -> [heap] (buffer.Buffer, buffer.Buffer, buffer.Buffer) {
+    var po = buffer.empty(heap, len(params) + 8);
+    var mo = buffer.empty(heap, len(params) + 8);
+    var vo = buffer.empty(heap, len(params) + 8);
+    let t = float_of(hy.step);
+    let bc1 = 1.0 - math.pow(hy.b1, t);
+    let bc2 = 1.0 - math.pow(hy.b2, t);
+    let step_size = hy.lr / bc1;
+    let bc2s = sqrt(bc2);
+    let decay = 1.0 - hy.lr * hy.wd;
+    var i = 0;
+    while i < len(params) {
+        let gi = word(g, i) * coef;
+        var mo1 = 0.0;
+        var vo1 = 0.0;
+        if !fresh {
+            mo1 = word(m1, i);
+            vo1 = word(v1, i);
+        }
+        let m2 = mo1 + (1.0 - hy.b1) * (gi - mo1);
+        let v2 = vo1 * hy.b2 + (1.0 - hy.b2) * gi * gi;
+        let denom = sqrt(v2) / bc2s + hy.eps;
+        let p2 = word(params, i) * decay - step_size * (m2 / denom);
+        po = put(heap, po, p2);
+        mo = put(heap, mo, m2);
+        vo = put(heap, vo, v2);
+        i = i + 8;
+    }
+    return (po, mo, vo);
+}

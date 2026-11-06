@@ -11,6 +11,7 @@ edition 9;
 //
 // Exit status 0 whenever a reward was produced, whatever the candidate did; 2 for a usage error or an unreadable task.
 
+import rl.adamw;
 import rl.adv;
 import rl.grade;
 import rl.pack;
@@ -153,7 +154,6 @@ fn grade_command[&h, &i, &g, &f, &x, &c](heap: &!h Heap, io: &!i Io, args: &g Ar
     fs_remove(fs, scratch);
     return status;
 }
-
 
 // `rl split TASKDIR`: "heldout" or "train" for the task named in TASKDIR/task.spec.
 fn split_command[&h, &i, &g, &f](heap: &!h Heap, io: &!i Io, args: &g Args, fs: &f Fs("")) -> [heap, io_write, err_write, args, fs_read(""), file_read] int {
@@ -307,8 +307,8 @@ fn report_command[&h, &i, &g, &f](heap: &!h Heap, io: &!i Io, args: &g Args, fs:
     return status;
 }
 
-// rl pack SAMPLES PREFIX NB T PAD: the samples (JSON lines) into one [NB, T] batch, PREFIX.tokens.i32 and PREFIX.weights.f64 (lib/rl/pack.cho). One JSON object on
-// standard output: how many samples, how many kept (non-zero advantage) and their completion tokens. Nothing is written when none is kept.
+// rl pack SAMPLES PREFIX NB T PAD: the samples (JSON lines) into K = ceil(kept / NB) batches of [NB, T], PREFIX.tokens.i32 and PREFIX.weights.f64 (lib/rl/pack.cho). One JSON
+// object on standard output: how many samples, how many kept (non-zero advantage), the batches and the completion tokens. Nothing is written when none is kept.
 fn pack_command[&h, &i, &g, &f](heap: &!h Heap, io: &!i Io, args: &g Args, fs: &f Fs("")) -> [heap, io_write, err_write, args, fs_read(""), fs_write(""), file_read] int {
     if arg_count(args) != 7 {
         return refuse(heap, io, "rl.usage", "rl pack SAMPLES PREFIX NB T PAD");
@@ -326,9 +326,6 @@ fn pack_command[&h, &i, &g, &f](heap: &!h Heap, io: &!i Io, args: &g Args, fs: &
     if status == 2 {
         return refuse(heap, io, "rl.pack.sample", "a line is not {group, reward, prompt, completion} with integer token lists");
     }
-    if status == 3 {
-        return refuse(heap, io, "rl.pack.overflow", "more samples with a non-zero advantage than rows (NB): split the samples into batches");
-    }
     if status == 4 {
         return refuse(heap, io, "rl.pack.long", "a kept sample is longer than T");
     }
@@ -341,6 +338,8 @@ fn pack_command[&h, &i, &g, &f](heap: &!h Heap, io: &!i Io, args: &g Args, fs: &
     w = json.put_int(heap, w, total);
     w = json.put_key(heap, w, "kept");
     w = json.put_int(heap, w, kept);
+    w = json.put_key(heap, w, "batches");
+    w = json.put_int(heap, w, (kept + nb - 1) / nb);
     w = json.put_key(heap, w, "completion_tokens");
     w = json.put_int(heap, w, ntok);
     w = json.end_object(heap, w);
@@ -350,6 +349,216 @@ fn pack_command[&h, &i, &g, &f](heap: &!h Heap, io: &!i Io, args: &g Args, fs: &
     }
     buffer.drop(heap, out);
     return 0;
+}
+
+// rl adamw CONFIG PARAMS M V OUT GRAD...: the optimiser step of one update (lib/rl/adamw.cho). CONFIG is JSON: {"step": t, "lr": ..., "beta1", "beta2", "eps", "weight_decay", "clip"}
+// (step and lr are required; the defaults are 0.9, 0.999, 1e-8, 0 and no clipping). M and V are the moments files, or "-" for zeros (the first update). The GRAD files are summed.
+// Writes OUT.params.f64, OUT.m.f64 and OUT.v.f64; one JSON object on standard output: the number of values, the step, the gradient norm before clipping and the factor applied.
+fn hyper_of[&c](cfg: &c [byte]) -> [] (adamw.Hyper, bool) {
+    let bad = adamw.Hyper { step: 0, lr: 0.0, b1: 0.0, b2: 0.0, eps: 0.0, wd: 0.0, clip: 0.0 };
+    if len(cfg) > 2000 {
+        return (bad, false);
+    }
+    var ok = false;
+    var hy = bad;
+    region a {
+        let tape = alloc_slice[a](3 * (len(cfg) + 8), 0);
+        let st = alloc_slice[a](2, 0);
+        let nodes = json.parse_with(cfg, tape, st);
+        if nodes > 0 && json.is_object(tape, 0) {
+            let s = json.get(cfg, tape, 0, "step");
+            let l = json.get(cfg, tape, 0, "lr");
+            if s >= 0 && l >= 0 && json.is_int(tape, s) && json.is_number(tape, l) {
+                var b1 = 0.9;
+                var b2 = 0.999;
+                var eps = 0.00000001;
+                var wd = 0.0;
+                var clip = 0.0;
+                let nb1 = json.get(cfg, tape, 0, "beta1");
+                if nb1 >= 0 {
+                    b1 = json.to_float(cfg, tape, nb1);
+                }
+                let nb2 = json.get(cfg, tape, 0, "beta2");
+                if nb2 >= 0 {
+                    b2 = json.to_float(cfg, tape, nb2);
+                }
+                let ne = json.get(cfg, tape, 0, "eps");
+                if ne >= 0 {
+                    eps = json.to_float(cfg, tape, ne);
+                }
+                let nw = json.get(cfg, tape, 0, "weight_decay");
+                if nw >= 0 {
+                    wd = json.to_float(cfg, tape, nw);
+                }
+                let nc = json.get(cfg, tape, 0, "clip");
+                if nc >= 0 {
+                    clip = json.to_float(cfg, tape, nc);
+                }
+                hy = adamw.Hyper { step: json.to_int(cfg, tape, s), lr: json.to_float(cfg, tape, l), b1: b1, b2: b2, eps: eps, wd: wd, clip: clip };
+                ok = hy.step >= 1;
+            }
+        }
+    }
+    return (hy, ok);
+}
+
+fn adamw_command[&h, &i, &g, &f](heap: &!h Heap, io: &!i Io, args: &g Args, fs: &f Fs("")) -> [heap, io_write, err_write, args, fs_read(""), fs_write(""), file_read] int {
+    if arg_count(args) < 8 {
+        return refuse(heap, io, "rl.usage", "rl adamw CONFIG PARAMS M V OUT GRAD...");
+    }
+    let (cfg, cfg_failed) = text.read_file(heap, fs, arg(args, 2));
+    let (params, pf) = text.read_file(heap, fs, arg(args, 3));
+    var mom_m = buffer.empty(heap, 8);
+    var mom_v = buffer.empty(heap, 8);
+    var mf = 0;
+    if !bytes.equal(arg(args, 4), "-") {
+        buffer.drop(heap, mom_m);
+        let (mb, f1) = text.read_file(heap, fs, arg(args, 4));
+        mom_m = mb;
+        mf = f1;
+    }
+    var vf = 0;
+    if !bytes.equal(arg(args, 5), "-") {
+        buffer.drop(heap, mom_v);
+        let (vb, f2) = text.read_file(heap, fs, arg(args, 5));
+        mom_v = vb;
+        vf = f2;
+    }
+    var status = 0;
+    var acc = buffer.empty(heap, 8);
+    var gfail = 0;
+    var k = 7;
+    while k < arg_count(args) && gfail == 0 {
+        let (gb, gf) = text.read_file(heap, fs, arg(args, k));
+        if gf != 0 {
+            gfail = 1;
+            buffer.drop(heap, gb);
+        } else if k == 7 {
+            buffer.drop(heap, acc);
+            acc = gb;
+        } else {
+            var mismatch = false;
+            borrow acc as &ar in {
+                borrow gb as &gr in {
+                    if len(buffer.bytes(ar)) != len(buffer.bytes(gr)) {
+                        mismatch = true;
+                    }
+                }
+            }
+            if mismatch {
+                gfail = 2;
+                buffer.drop(heap, gb);
+            } else {
+                var summed = buffer.empty(heap, 8);
+                borrow acc as &ar in {
+                    borrow gb as &gr in {
+                        buffer.drop(heap, summed);
+                        summed = adamw.add(heap, buffer.bytes(ar), buffer.bytes(gr));
+                    }
+                }
+                buffer.drop(heap, acc);
+                buffer.drop(heap, gb);
+                acc = summed;
+            }
+        }
+        k = k + 1;
+    }
+    if cfg_failed != 0 || pf != 0 || mf != 0 || vf != 0 || gfail == 1 {
+        status = refuse(heap, io, "rl.adamw.input", "a file cannot be read");
+    } else {
+        borrow cfg as &cb in {
+            let (hy, ok) = hyper_of(buffer.bytes(cb));
+            if !ok {
+                status = refuse(heap, io, "rl.adamw.config", "CONFIG is JSON with an integer step of at least 1 and a number lr");
+            } else if gfail == 2 {
+                status = refuse(heap, io, "rl.adamw.shape", "the gradient files differ in length");
+            } else {
+                borrow params as &pr in {
+                    borrow mom_m as &mr in {
+                        borrow mom_v as &vr in {
+                            borrow acc as &ar in {
+                                let n = len(buffer.bytes(pr));
+                                let fresh = bytes.equal(arg(args, 4), "-");
+                                if bytes.equal(arg(args, 5), "-") != fresh {
+                                    status = refuse(heap, io, "rl.usage", "M and V are both files or both \"-\"");
+                                } else if n % 8 != 0 || len(buffer.bytes(ar)) != n || !fresh && (len(buffer.bytes(mr)) != n || len(buffer.bytes(vr)) != n) {
+                                    status = refuse(heap, io, "rl.adamw.shape", "PARAMS, M, V and the gradients must be binary64 arrays of the same length");
+                                } else {
+                                    let gn = adamw.norm(buffer.bytes(ar));
+                                    let coef = adamw.coefficient(gn, hy.clip);
+                                    let (po, mo, vo) = adamw.update(heap, hy, buffer.bytes(pr), buffer.bytes(mr), buffer.bytes(vr), buffer.bytes(ar), coef, fresh);
+                                    var wrote = 0;
+                                    var names = 0;
+                                    while names < 3 {
+                                        var path = buffer.append(heap, buffer.empty(heap, 64), arg(args, 6));
+                                        if names == 0 {
+                                            path = buffer.append(heap, path, ".params.f64");
+                                        } else if names == 1 {
+                                            path = buffer.append(heap, path, ".m.f64");
+                                        } else {
+                                            path = buffer.append(heap, path, ".v.f64");
+                                        }
+                                        borrow path as &pp in {
+                                            if names == 0 {
+                                                borrow po as &ob in {
+                                                    if fs_write(fs, buffer.bytes(pp), buffer.bytes(ob)) < 0 {
+                                                        wrote = 1;
+                                                    }
+                                                }
+                                            } else if names == 1 {
+                                                borrow mo as &ob in {
+                                                    if fs_write(fs, buffer.bytes(pp), buffer.bytes(ob)) < 0 {
+                                                        wrote = 1;
+                                                    }
+                                                }
+                                            } else {
+                                                borrow vo as &ob in {
+                                                    if fs_write(fs, buffer.bytes(pp), buffer.bytes(ob)) < 0 {
+                                                        wrote = 1;
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        buffer.drop(heap, path);
+                                        names = names + 1;
+                                    }
+                                    buffer.drop(heap, po);
+                                    buffer.drop(heap, mo);
+                                    buffer.drop(heap, vo);
+                                    if wrote != 0 {
+                                        status = refuse(heap, io, "rl.adamw.write", "an output file cannot be written");
+                                    } else {
+                                        var w = json.writer(heap, 128);
+                                        w = json.begin_object(heap, w);
+                                        w = json.put_key(heap, w, "n");
+                                        w = json.put_int(heap, w, n / 8);
+                                        w = json.put_key(heap, w, "step");
+                                        w = json.put_int(heap, w, hy.step);
+                                        w = json.put_key(heap, w, "grad_norm");
+                                        w = json.put_float(heap, w, gn);
+                                        w = json.put_key(heap, w, "coef");
+                                        w = json.put_float(heap, w, coef);
+                                        w = json.end_object(heap, w);
+                                        let out = buffer.push(heap, json.finish(w), byte_of(10));
+                                        borrow out as &or in {
+                                            buffer.write(io, or);
+                                        }
+                                        buffer.drop(heap, out);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    buffer.drop(heap, cfg);
+    buffer.drop(heap, params);
+    buffer.drop(heap, mom_m);
+    buffer.drop(heap, mom_v);
+    buffer.drop(heap, acc);
+    return status;
 }
 
 fn main(world: World) -> [] int {
@@ -377,8 +586,10 @@ fn main(world: World) -> [] int {
                                 status = report_command(h, i, g, f, true);
                             } else if arg_count(g) >= 2 && bytes.equal(arg(g, 1), "pack") {
                                 status = pack_command(h, i, g, f);
+                            } else if arg_count(g) >= 2 && bytes.equal(arg(g, 1), "adamw") {
+                                status = adamw_command(h, i, g, f);
                             } else {
-                                status = refuse(h, i, "rl.usage", "the commands are `rl grade`, `rl split`, `rl prompt`, `rl report`, `rl tasks` and `rl pack`");
+                                status = refuse(h, i, "rl.usage", "the commands are `rl grade`, `rl split`, `rl prompt`, `rl report`, `rl tasks`, `rl pack` and `rl adamw`");
                             }
                         }
                     }
