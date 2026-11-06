@@ -5,7 +5,7 @@ set -u
 cd "$(dirname "$0")/.." || exit 1
 C="${CANCHO:-cancho}"
 mkdir -p build work
-"$C" build lib/rl/text.cho lib/rl/side.cho lib/rl/grade.cho lib/rl/report.cho lib/rl/adv.cho lib/rl/pack.cho tools/rl/main.cho --std -o build/rl 2>&1 | grep -v "ld: warning" ; [ -x build/rl ] || { echo "FAIL build"; exit 1; }
+"$C" build lib/rl/text.cho lib/rl/side.cho lib/rl/grade.cho lib/rl/report.cho lib/rl/adv.cho lib/rl/adamw.cho lib/rl/pack.cho tools/rl/main.cho --std -o build/rl 2>&1 | grep -v "ld: warning" ; [ -x build/rl ] || { echo "FAIL build"; exit 1; }
 fail=0
 for t in $(ls tasks); do
     out=$(./build/rl grade "$C" "tasks/$t" "tasks/$t/reference.cho" "work/$t.cho")
@@ -76,6 +76,12 @@ if [ "${GATE_TOOLS:-0}" = 1 ]; then
 fi
 # `rl pack`: advantages and weights against numpy, the refusals by rule (docs/design.md section 31)
 python3 scripts/pack_check.py build/rl > work/pack_check.txt 2>&1 || { echo "FAIL pack_check"; grep FAIL work/pack_check.txt; fail=1; }
+# `rl adamw` against torch.optim.AdamW after clip_grad_norm_ (needs torch; docs/design.md section 33)
+if python3 -c 'import torch' 2>/dev/null; then
+    python3 scripts/adamw_check.py build/rl > work/adamw_check.txt 2>&1 || { echo "FAIL adamw_check"; grep FAIL work/adamw_check.txt; fail=1; }
+else
+    echo "skip adamw_check: torch is not installed"
+fi
 python3 scripts/crosscheck.py "$C" > work/crosscheck.txt 2>&1 || { echo "FAIL crosscheck"; grep DISAGREE work/crosscheck.txt; fail=1; }
 [ $fail = 0 ] && echo "gate: ok"
 exit $fail
