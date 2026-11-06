@@ -1,6 +1,7 @@
 """R2 (docs/design.md section 30): the policy-gradient (advantage-weighted) loss gradient of the LoRA adapters of Qwen2.5-1.5B-Instruct on a real batch, in a cancho-gpu
 Metal session with the loss weight `wt[i] = advantage x completion mask x loss_scale` (the resident file `wscale`), against peft's float32 autograd on the CPU. A comparison helper.
 
+  (BATCH.npz from r2_batch.py, or a `rl pack` PREFIX with --nb and --t)
   GPU=<cancho-gpu checkout> QWEN_WEIGHTS=<convert.py output of the Instruct model> METAL=<cancho-gpu-metal-session> [QSW=<build/qsw>] python3 scripts/r2_grad.py BATCH.npz WORKDIR [--b-std 0.02] [--loss-scale 16]
 
 With QSW the session is written by the cancho writer (`qsw write ... --no-train --grads --weights`); without it by qwen_train.py (Python) with `wscale` overwritten.
@@ -23,16 +24,25 @@ os.makedirs(work, exist_ok=True)
 W = os.environ["QWEN_WEIGHTS"]
 METAL = os.environ["METAL"]
 ls = float(arg("--loss-scale", 16.0)); bstd = float(arg("--b-std", 0.02))
-B = np.load(batch)
-tok = B["tokens"].astype(np.int64); adv = B["adv"]; plen = B["plen"]; clen = B["clen"]
-nb, t = tok.shape
+if batch.endswith(".npz"):
+    B = np.load(batch)
+    tok = B["tokens"].astype(np.int64); adv = B["adv"]; plen = B["plen"]; clen = B["clen"]
+    nb, t = tok.shape
+    # the weight of the row i, whose target is token i + 1: the advantage of its sequence when that token is a completion token
+    wt = np.zeros((nb, t))
+    for b in range(nb):
+        wt[b, plen[b] - 1: plen[b] + clen[b] - 1] = adv[b]
+    N = float(clen.sum()); wsess = wt; ncount = N; adv_txt = np.round(adv, 3).tolist()
+else:
+    # a `rl pack` prefix (section 31): the session takes pack's weights as they are, they are already scaled by nb (t - 1) / N, so the optimiser's constant divisor
+    # nb (t - 1) loss_scale is the right one; the reference weights are the unscaled advantages, with N the number of non-zero weights
+    nb, t = int(arg("--nb", 4)), int(arg("--t", 1152))
+    tok = np.fromfile(batch + ".tokens.i32", dtype="<i4").astype(np.int64).reshape(nb, t)
+    wsess = np.fromfile(batch + ".weights.f64", dtype="<f8").reshape(nb, t)
+    N = float(np.count_nonzero(wsess)); ncount = float(nb * (t - 1)); wt = wsess * N / ncount
+    adv_txt = sorted(set(np.round(wt[wt != 0], 3).tolist()))
 c = R.config_of(W, t, nb)
-# the weight of the row i, whose target is token i + 1: the advantage of its sequence when that token is a completion token
-wt = np.zeros((nb, t))
-for b in range(nb):
-    wt[b, plen[b] - 1: plen[b] + clen[b] - 1] = adv[b]
-N = float(clen.sum())
-print(f"nb {nb} t {t}; completion tokens {int(N)} of {nb * t}; advantages {np.round(adv, 3).tolist()}; weights x loss scale in [{(wt * ls).min():.3f}, {(wt * ls).max():.3f}]", flush=True)
+print(f"nb {nb} t {t}; completion tokens {int(N)} of {nb * t}; advantages {adv_txt}; weights x loss scale in [{(wt * ls).min():.3f}, {(wt * ls).max():.3f}]", flush=True)
 AB = R.init_lora(c, 16, 7, b_std=bstd)
 
 # --- peft, float32, CPU
@@ -70,7 +80,7 @@ if os.environ.get("QSW"):
     with open(os.path.join(work, "adapters.f64"), "wb") as f:
         for nm in R.lora_names(c):
             f.write(np.asarray(AB[nm], dtype="<f8").reshape(-1).tobytes())
-    wt.astype("<f8").tofile(os.path.join(work, "wt.f64"))
+    wsess.astype("<f8").tofile(os.path.join(work, "wt.f64"))
     done = subprocess.run([os.environ["QSW"], "write", "--config", os.path.join(work, "cfg.txt"), "--wdir", os.path.abspath(W), "--out", os.path.abspath(d), "--root", GPU, "--tokens", os.path.join(work, "tokens.i32"),
                            "--adapters", os.path.join(work, "adapters.f64"), "--weights", os.path.join(work, "wt.f64"), "--no-train", "--grads", os.path.abspath(os.path.join(d, "grads.bin"))], capture_output=True, text=True)
     assert done.returncode == 0, done.stderr
@@ -80,11 +90,11 @@ else:
     sess = T.write(d, c, W, tok.astype(np.int32), AB, r=16, loss_scale=ls, train=False, grads=os.path.join(d, "grads.bin"))
     (wf,) = glob.glob(os.path.join(d, "wscale*"))
     assert np.fromfile(wf, dtype="<f4").size == nb * t
-    (wt * ls).reshape(-1).astype("<f4").tofile(wf)
+    (wsess * ls).reshape(-1).astype("<f4").tofile(wf)
 ss = S.Session(METAL, sess)
 out, first = ss.ask("1")
 ss.checkpoint(); ss.close()
-got = T.split_grads(c, 16, T.read_fused(c, 16, os.path.join(d, "grads.bin")), N, ls)
+got = T.split_grads(c, 16, T.read_fused(c, 16, os.path.join(d, "grads.bin")), ncount, ls)
 cos, rel = [], []
 dot = na = nr = 0.0
 for k in sorted(got):
