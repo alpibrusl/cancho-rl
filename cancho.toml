@@ -4,6 +4,6 @@ cancho = "8812bd599813ee4fbee49a4562dc35b33964e342"   # the compiler these sourc
 
 [[bin]]
 name = "rl"
-sources = ["lib/rl/text", "lib/rl/side", "lib/rl/grade", "lib/rl/report", "tools/rl/main"]
+sources = ["lib/rl/text", "lib/rl/side", "lib/rl/grade", "lib/rl/report", "lib/rl/adv", "lib/rl/pack", "tools/rl/main"]
 std = true
 out = "build/rl"
