@@ -1,0 +1,256 @@
+edition 9;
+
+module rl.pack;
+
+// `rl pack`: samples in, one training batch out (docs/design.md section 31).
+//
+// The samples file is JSON lines, the samples of a prompt together: {"group": "...", "reward": R, "prompt": [ids], "completion": [ids]}. Advantages are
+// group-normalised (rl.adv) over each maximal run of lines with the same group; a sample whose advantage is 0 is dropped. The kept samples become the
+// rows of one [nb, t] batch, the prompt then the completion (which ends at its end-of-turn token), padded with `pad`; the rows after the kept ones are all
+// pad with weight 0. The weight of the position i of a row, whose target is the token i + 1, is the sample's advantage when that token is a completion
+// token, else 0, times nb (t - 1) / N with N the completion tokens kept: cancho-gpu's optimiser divides the gradient by the constant nb (t - 1) loss_scale
+// (docs/qsw.md section 3), so this makes the update the mean over the N completion tokens, as r1_grpo.py's loss is.
+//
+// Files: PREFIX.tokens.i32 (int32 little-endian [nb, t]) and PREFIX.weights.f64 (binary64 little-endian [nb, t]), the inputs of `qsw write`.
+
+import rl.adv;
+import rl.text;
+import std.buffer;
+import std.bytes;
+import std.json;
+import std.vec;
+
+fn le[&h](heap: &!h Heap, b: buffer.Buffer, word: int, count: int) -> [heap] buffer.Buffer {
+    var out = b;
+    var i = 0;
+    while i < count {
+        out = buffer.push(heap, out, byte_of(word >> 8 * i & 255));
+        i = i + 1;
+    }
+    return out;
+}
+
+// Whether the node is an array of integers.
+fn all_ints[&s, &t](src: &s [byte], tape: &t [int], node: int) -> [] bool {
+    if !json.is_array(tape, node) {
+        return false;
+    }
+    let n = json.count(tape, node);
+    var j = node + 1;
+    var k = 0;
+    while k < n {
+        if !json.is_int(tape, j) || !json.fits_int(src, tape, j) {
+            return false;
+        }
+        j = json.skip(tape, j);
+        k = k + 1;
+    }
+    return true;
+}
+
+// One sample line: (ok, reward, prompt length, completion length, group start, group length). The group is a position in the line.
+fn inspect[&s, &t, &q](line: &s [byte], tape: &!t [int], st: &!q [int]) -> [] (bool, float, int, int, int, int) {
+    let nodes = json.parse_with(line, tape, st);
+    if nodes <= 0 || !json.is_object(tape, 0) {
+        return (false, 0.0, 0, 0, 0, 0);
+    }
+    let g = json.get(line, tape, 0, "group");
+    let r = json.get(line, tape, 0, "reward");
+    let p = json.get(line, tape, 0, "prompt");
+    let c = json.get(line, tape, 0, "completion");
+    if g < 0 || r < 0 || p < 0 || c < 0 || !json.is_string(tape, g) || !json.string_plain(tape, g) || !json.is_number(tape, r) {
+        return (false, 0.0, 0, 0, 0, 0);
+    }
+    if !all_ints(line, tape, p) || !all_ints(line, tape, c) {
+        return (false, 0.0, 0, 0, 0, 0);
+    }
+    let gv = json.string_view(line, tape, g);
+    let at = bytes.find(line, gv);
+    return (true, json.to_float(line, tape, r), json.count(tape, p), json.count(tape, c), at, len(gv));
+}
+
+// The integers of the array `key` of the (already inspected) line, appended to `out`.
+fn push_ints[&h, &s, &t](heap: &!h Heap, out: buffer.Buffer, line: &s [byte], tape: &t [int], key: &static [byte]) -> [heap] buffer.Buffer {
+    var b = out;
+    let node = json.get(line, tape, 0, key);
+    let n = json.count(tape, node);
+    var j = node + 1;
+    var k = 0;
+    while k < n {
+        b = le(heap, b, json.to_int(line, tape, j), 4);
+        j = json.skip(tape, j);
+        k = k + 1;
+    }
+    return b;
+}
+
+// Answers (status, samples, kept, completion tokens): 0 ok (nothing is written when nothing is kept); 1 the samples cannot be read; 2 a line is not a sample;
+// 3 more kept samples than rows; 4 a sample longer than `t`; 5 a file cannot be written.
+pub fn run[&h, &f, &s, &p](heap: &!h Heap, fs: &f Fs(""), samples: &s [byte], prefix: &p [byte], nb: int, t: int, pad: int) -> [heap, fs_read(""), fs_write(""), file_read] (int, int, int, int) {
+    let (file, failed) = text.read_file(heap, fs, samples);
+    if failed != 0 {
+        buffer.drop(heap, file);
+        return (1, 0, 0, 0);
+    }
+    var status = 0;
+    var total = 0;
+    var kept = 0;
+    var ntok = 0;
+    var tokens = buffer.empty(heap, 4 * nb * t + 8);
+    var weights = buffer.empty(heap, 8 * nb * t + 8);
+    borrow file as &fb in {
+        let all = buffer.bytes(fb);
+        let lines = text.line_count(all);
+        var longest = 0;
+        var k = 1;
+        while k <= lines {
+            if len(text.line(all, k)) > longest {
+                longest = len(text.line(all, k));
+            }
+            k = k + 1;
+        }
+        let tl = 3 * (longest + 8);
+        let islab = box_slice(heap, tl + 2 + 6 * lines, 0);
+        let fslab = box_slice(heap, 2 * lines, 0.0);
+        borrow mut islab as &!iw in {
+            borrow mut fslab as &!fw in {
+            let ia = contents(iw);
+            let fa = contents(fw);
+            let tape = ia[0..tl];
+            let st = ia[tl..tl + 2];
+            let starts = ia[tl + 2..tl + 2 + lines];
+            let plen = ia[tl + 2 + lines..tl + 2 + 2 * lines];
+            let clen = ia[tl + 2 + 2 * lines..tl + 2 + 3 * lines];
+            let gs = ia[tl + 2 + 3 * lines..tl + 2 + 4 * lines];
+            let gl = ia[tl + 2 + 4 * lines..tl + 2 + 5 * lines];
+            let rew = fa[0..lines];
+            let advs = fa[lines..2 * lines];
+            var off = 0;
+            var total_n = 0;
+            k = 1;
+            while k <= lines && status == 0 {
+                let ln = text.line(all, k);
+                if len(bytes.trim(ln)) > 0 {
+                    let (ok, r, pl, cl, g0, g1) = inspect(ln, tape, st);
+                    if !ok {
+                        status = 2;
+                    } else {
+                        starts[total_n] = k;
+                        plen[total_n] = pl;
+                        clen[total_n] = cl;
+                        rew[total_n] = r;
+                        gs[total_n] = off + g0;
+                        gl[total_n] = g1;
+                        total_n = total_n + 1;
+                    }
+                }
+                off = off + len(ln) + 1;
+                k = k + 1;
+            }
+            total = total_n;
+            var i = 0;
+            if status == 0 {
+                // the groups: maximal runs of lines with the same group text
+                var lo = 0;
+                i = 1;
+                while i <= total {
+                    var same = false;
+                    if i < total {
+                        same = bytes.equal(all[gs[lo]..gs[lo] + gl[lo]], all[gs[i]..gs[i] + gl[i]]);
+                    }
+                    if !same {
+                        adv.group(rew, lo, i, advs);
+                        lo = i;
+                    }
+                    i = i + 1;
+                }
+                i = 0;
+                while i < total {
+                    if advs[i] != 0.0 {
+                        kept = kept + 1;
+                        ntok = ntok + clen[i];
+                    }
+                    i = i + 1;
+                }
+                if kept > nb {
+                    status = 3;
+                }
+                i = 0;
+                while i < total && status == 0 {
+                    if advs[i] != 0.0 && plen[i] + clen[i] > t {
+                        status = 4;
+                    }
+                    i = i + 1;
+                }
+            }
+            if status == 0 && kept > 0 {
+                let scale = float_of(nb * (t - 1)) / float_of(ntok);
+                var row = 0;
+                i = 0;
+                while i < total {
+                    let a1 = advs[i];
+                    if a1 != 0.0 {
+                        let ln = text.line(all, starts[i]);
+                        json.parse_with(ln, tape, st);
+                        tokens = push_ints(heap, tokens, ln, tape, "prompt");
+                        tokens = push_ints(heap, tokens, ln, tape, "completion");
+                        var pos = plen[i] + clen[i];
+                        while pos < t {
+                            tokens = le(heap, tokens, pad, 4);
+                            pos = pos + 1;
+                        }
+                        pos = 0;
+                        while pos < t {
+                            var w = 0.0;
+                            if pos >= plen[i] - 1 && pos < plen[i] + clen[i] - 1 {
+                                w = a1 * scale;
+                            }
+                            weights = le(heap, weights, bits_of(w), 8);
+                            pos = pos + 1;
+                        }
+                        row = row + 1;
+                    }
+                    i = i + 1;
+                }
+                while row < nb {
+                    var pos = 0;
+                    while pos < t {
+                        tokens = le(heap, tokens, pad, 4);
+                        weights = le(heap, weights, 0, 8);
+                        pos = pos + 1;
+                    }
+                    row = row + 1;
+                }
+            }
+            }
+        }
+        unbox_slice(heap, fslab);
+        unbox_slice(heap, islab);
+    }
+    buffer.drop(heap, file);
+    if status == 0 && kept > 0 {
+        var tp = buffer.append(heap, buffer.empty(heap, 64), prefix);
+        tp = buffer.append(heap, tp, ".tokens.i32");
+        var wp = buffer.append(heap, buffer.empty(heap, 64), prefix);
+        wp = buffer.append(heap, wp, ".weights.f64");
+        borrow tp as &tpr in {
+            borrow tokens as &tb in {
+                if fs_write(fs, buffer.bytes(tpr), buffer.bytes(tb)) < 0 {
+                    status = 5;
+                }
+            }
+        }
+        borrow wp as &wpr in {
+            borrow weights as &wb in {
+                if fs_write(fs, buffer.bytes(wpr), buffer.bytes(wb)) < 0 {
+                    status = 5;
+                }
+            }
+        }
+        buffer.drop(heap, tp);
+        buffer.drop(heap, wp);
+    }
+    buffer.drop(heap, tokens);
+    buffer.drop(heap, weights);
+    return (status, total, kept, ntok);
+}

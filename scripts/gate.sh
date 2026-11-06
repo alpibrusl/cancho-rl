@@ -5,7 +5,7 @@ set -u
 cd "$(dirname "$0")/.." || exit 1
 C="${CANCHO:-cancho}"
 mkdir -p build work
-"$C" build lib/rl/text.cho lib/rl/side.cho lib/rl/grade.cho lib/rl/report.cho tools/rl/main.cho --std -o build/rl 2>&1 | grep -v "ld: warning" ; [ -x build/rl ] || { echo "FAIL build"; exit 1; }
+"$C" build lib/rl/text.cho lib/rl/side.cho lib/rl/grade.cho lib/rl/report.cho lib/rl/adv.cho lib/rl/pack.cho tools/rl/main.cho --std -o build/rl 2>&1 | grep -v "ld: warning" ; [ -x build/rl ] || { echo "FAIL build"; exit 1; }
 fail=0
 for t in $(ls tasks); do
     out=$(./build/rl grade "$C" "tasks/$t" "tasks/$t/reference.cho" "work/$t.cho")
@@ -74,6 +74,8 @@ if [ "${GATE_TOOLS:-0}" = 1 ]; then
     printf 'task,rate\na,0.5\nb,0.5\nc,0.5\nd,0.5\n' > work/flat.csv
     work/tools/stats ci boot work/flat.csv --cols rate --statistic mean --seed 1 --replicates 500 --level 0.95 | grep -q '"low":0.5,"high":0.5' || { echo "FAIL equal rates do not collapse"; fail=1; }
 fi
+# `rl pack`: advantages and weights against numpy, the refusals by rule (docs/design.md section 31)
+python3 scripts/pack_check.py build/rl > work/pack_check.txt 2>&1 || { echo "FAIL pack_check"; grep FAIL work/pack_check.txt; fail=1; }
 python3 scripts/crosscheck.py "$C" > work/crosscheck.txt 2>&1 || { echo "FAIL crosscheck"; grep DISAGREE work/crosscheck.txt; fail=1; }
 [ $fail = 0 ] && echo "gate: ok"
 exit $fail

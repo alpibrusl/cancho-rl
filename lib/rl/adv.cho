@@ -1,0 +1,49 @@
+edition 9;
+
+module rl.adv;
+
+// Group-normalised advantages (docs/design.md section 31): for the samples of one prompt, a = (r - mean) / (std + 1e-4) with std the unbiased
+// (n - 1) standard deviation, and a group whose rewards are all equal (or that has one sample) contributes nothing: all its advantages are 0.
+// This is `scripts/r1_grpo.py`'s rule, so R4's loop and R1's reference agree.
+
+// The advantages of the samples `lo` to `hi` (exclusive) of `rewards`, stored at the same positions of `out`. Answers how many are non-zero.
+pub fn group[&r, &o](rewards: &r [float], lo: int, hi: int, out: &!o [float]) -> [] int {
+    let n = hi - lo;
+    var i = lo;
+    while i < hi {
+        out[i] = 0.0;
+        i = i + 1;
+    }
+    if n < 2 {
+        return 0;
+    }
+    var sum = 0.0;
+    i = lo;
+    while i < hi {
+        sum = sum + rewards[i];
+        i = i + 1;
+    }
+    let mean = sum / float_of(n);
+    var ss = 0.0;
+    i = lo;
+    while i < hi {
+        let d = rewards[i] - mean;
+        ss = ss + d * d;
+        i = i + 1;
+    }
+    let std = sqrt(ss / float_of(n - 1));
+    if !(std > 0.0) {
+        return 0;
+    }
+    var live = 0;
+    i = lo;
+    while i < hi {
+        let a = (rewards[i] - mean) / (std + 0.0001);
+        out[i] = a;
+        if a != 0.0 {
+            live = live + 1;
+        }
+        i = i + 1;
+    }
+    return live;
+}
