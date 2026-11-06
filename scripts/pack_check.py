@@ -70,6 +70,11 @@ d2 = os.path.join(d, "none"); os.makedirs(d2)
 open(os.path.join(d2, "s"), "w").write("\n".join(json.dumps(sample(rng, "g", 1.0, t)) for _ in range(4)) + "\n")
 done = run([os.path.join(d2, "s"), os.path.join(d2, "o"), "4", str(t), "0"])
 say(done.returncode == 0 and json.loads(done.stdout)["kept"] == 0 and not os.path.exists(os.path.join(d2, "o.tokens.i32")), "all rewards equal: kept 0, nothing written")
+# equal partial rewards: the mean of identical floats can be a rounding step off, which must not leave live samples with advantages of 1e-12 (found by the iteration-40 update of R4's first run: a null step)
+d2b = os.path.join(d, "none_partial"); os.makedirs(d2b)
+open(os.path.join(d2b, "s"), "w").write("\n".join(json.dumps(sample(rng, f"g{k}", r, t)) for k, r in enumerate((0.8888888888888888, 0.8666666666666667, 0.7142857142857143, 0.1)) for _ in range(8)) + "\n")
+done = run([os.path.join(d2b, "s"), os.path.join(d2b, "o"), "4", str(t), "0"])
+say(done.returncode == 0 and json.loads(done.stdout)["kept"] == 0 and not os.path.exists(os.path.join(d2b, "o.tokens.i32")), "four groups of identical partial rewards: kept 0, nothing written")
 
 # long lines (a trap once: the arrays were in a 64 KiB region) and many lines
 def big(name, groups, per, plen, clen, nb_, t_):
