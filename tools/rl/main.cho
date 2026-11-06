@@ -16,6 +16,8 @@ import rl.adv;
 import rl.grade;
 import rl.pack;
 import rl.report;
+import rl.rollin;
+import rl.rollout;
 import rl.side;
 import rl.text;
 import std.buffer;
@@ -188,9 +190,9 @@ fn split_command[&h, &i, &g, &f](heap: &!h Heap, io: &!i Io, args: &g Args, fs: 
 
 // `rl prompt PRIMER TASKDIR`: the primer file, then the task (signature, description, examples) and the instruction, as the text a policy is given.
 // Never prints a `case:` line: the hidden cases are not part of a prompt.
-fn prompt_command[&h, &i, &g, &f](heap: &!h Heap, io: &!i Io, args: &g Args, fs: &f Fs("")) -> [heap, io_write, err_write, args, fs_read(""), file_read] int {
+fn prompt_command[&h, &i, &g, &f](heap: &!h Heap, io: &!i Io, args: &g Args, fs: &f Fs(""), chat: bool) -> [heap, io_write, err_write, args, fs_read(""), file_read] int {
     if arg_count(args) != 4 {
-        return refuse(heap, io, "rl.usage", "rl prompt PRIMER TASKDIR");
+        return refuse(heap, io, "rl.usage", "rl prompt PRIMER TASKDIR (or rl chat PRIMER TASKDIR)");
     }
     let path = path_in(heap, arg(args, 3), "task.spec");
     var status = 0;
@@ -202,7 +204,11 @@ fn prompt_command[&h, &i, &g, &f](heap: &!h Heap, io: &!i Io, args: &g Args, fs:
         } else {
             borrow spec as &sb in {
                 borrow primer as &rb in {
-                    var out = buffer.append(heap, buffer.empty(heap, 4096), buffer.bytes(rb));
+                    var out = buffer.empty(heap, 4096);
+                    if chat {
+                        out = buffer.append(heap, out, "<|im_start|>system\nYou are Qwen, created by Alibaba Cloud. You are a helpful assistant.<|im_end|>\n<|im_start|>user\n");
+                    }
+                    out = buffer.append(heap, out, buffer.bytes(rb));
                     out = buffer.append(heap, out, "\n\n## The task\n\nWrite this function in cancho:\n\n");
                     out = buffer.append(heap, out, grade.spec_value(buffer.bytes(sb), "sig:"));
                     out = buffer.append(heap, out, "\n\n");
@@ -220,6 +226,9 @@ fn prompt_command[&h, &i, &g, &f](heap: &!h Heap, io: &!i Io, args: &g Args, fs:
                         k = k + 1;
                     }
                     out = buffer.append(heap, out, "\nReply with the complete program in one ```cancho code block: `edition 7;`, then the function (and any helper functions it needs). No `main`, no tests, no explanation.\n");
+                    if chat {
+                        out = buffer.append(heap, out, "<|im_end|>\n<|im_start|>assistant\n");
+                    }
                     borrow out as &ob in {
                         buffer.write(io, ob);
                     }
@@ -305,6 +314,126 @@ fn report_command[&h, &i, &g, &f](heap: &!h Heap, io: &!i Io, args: &g Args, fs:
     buffer.drop(heap, rows);
     vec.drop(heap, c);
     return status;
+}
+
+// rl rollin PROMPTS GROUP T STEPS PAD SEED PREFIX: the inputs of a rollout (lib/rl/rollin.cho, docs/design.md section 42). PROMPTS is `cancho-gpu tokenize`'s output over the `rl chat` prompts.
+fn rollin_command[&h, &i, &g, &f](heap: &!h Heap, io: &!i Io, args: &g Args, fs: &f Fs("")) -> [heap, io_write, err_write, args, fs_read(""), fs_write(""), file_read] int {
+    if arg_count(args) != 9 {
+        return refuse(heap, io, "rl.usage", "rl rollin PROMPTS GROUP T STEPS PAD SEED PREFIX");
+    }
+    let group = text.parse_int(arg(args, 3));
+    let t = text.parse_int(arg(args, 4));
+    let steps = text.parse_int(arg(args, 5));
+    let pad = text.parse_int(arg(args, 6));
+    let seed = text.parse_int(arg(args, 7));
+    if group < 1 || t < 2 || steps < 1 || pad < 0 {
+        return refuse(heap, io, "rl.usage", "GROUP and STEPS must be at least 1, T at least 2, PAD not negative");
+    }
+    let (status, prompts, nb) = rollin.run(heap, fs, arg(args, 2), group, t, steps, pad, seed, arg(args, 8));
+    if status == 1 {
+        return refuse(heap, io, "rl.rollin.input", "the prompts file cannot be read");
+    }
+    if status == 2 {
+        return refuse(heap, io, "rl.rollin.prompts", "the prompts file has no `ids` line, or a prompt is empty");
+    }
+    if status == 3 {
+        return refuse(heap, io, "rl.rollin.shape", "more than 32 sequences (prompts x group)");
+    }
+    if status == 4 {
+        return refuse(heap, io, "rl.rollin.long", "a prompt and the steps do not fit in T");
+    }
+    if status != 0 {
+        return refuse(heap, io, "rl.rollin.write", "an output file cannot be written");
+    }
+    var w = json.writer(heap, 128);
+    w = json.begin_object(heap, w);
+    w = json.put_key(heap, w, "prompts");
+    w = json.put_int(heap, w, prompts);
+    w = json.put_key(heap, w, "sequences");
+    w = json.put_int(heap, w, nb);
+    w = json.end_object(heap, w);
+    let out = buffer.push(heap, json.finish(w), byte_of(10));
+    borrow out as &or in {
+        buffer.write(io, or);
+    }
+    buffer.drop(heap, out);
+    return 0;
+}
+
+// The one-line JSON answer of the rollout commands: {"<a>": x, "<b>": y}.
+fn pair_answer[&h, &i](heap: &!h Heap, io: &!i Io, a: &static [byte], x: int, b: &static [byte], y: int) -> [heap, io_write] int {
+    var w = json.writer(heap, 128);
+    w = json.begin_object(heap, w);
+    w = json.put_key(heap, w, a);
+    w = json.put_int(heap, w, x);
+    w = json.put_key(heap, w, b);
+    w = json.put_int(heap, w, y);
+    w = json.end_object(heap, w);
+    let out = buffer.push(heap, json.finish(w), byte_of(10));
+    borrow out as &or in {
+        buffer.write(io, or);
+    }
+    buffer.drop(heap, out);
+    return 0;
+}
+
+// rl complete IDS GROUP STEPS PREFIX: a decode's draws into PREFIX.ids (for `cancho-gpu detokenize`) and PREFIX.meta (lib/rl/rollout.cho, docs/design.md section 42).
+fn complete_command[&h, &i, &g, &f](heap: &!h Heap, io: &!i Io, args: &g Args, fs: &f Fs("")) -> [heap, io_write, err_write, args, fs_read(""), fs_write(""), file_read] int {
+    if arg_count(args) != 6 {
+        return refuse(heap, io, "rl.usage", "rl complete IDS GROUP STEPS PREFIX");
+    }
+    let group = text.parse_int(arg(args, 3));
+    let steps = text.parse_int(arg(args, 4));
+    if group < 1 || steps < 1 {
+        return refuse(heap, io, "rl.usage", "GROUP and STEPS must be at least 1");
+    }
+    let (status, seqs, stopped) = rollout.complete(heap, fs, arg(args, 2), group, steps, arg(args, 5));
+    if status == 1 {
+        return refuse(heap, io, "rl.complete.input", "the draws file cannot be read");
+    }
+    if status == 2 {
+        return refuse(heap, io, "rl.complete.shape", "the draws are not a whole number of rows of STEPS numbers");
+    }
+    if status != 0 {
+        return refuse(heap, io, "rl.complete.write", "an output file cannot be written");
+    }
+    return pair_answer(heap, io, "sequences", seqs, "stopped", stopped);
+}
+
+// rl extract DEC PREFIX: the candidate program of each decoded reply, PREFIX.k.cho (lib/rl/rollout.cho).
+fn extract_command[&h, &i, &g, &f](heap: &!h Heap, io: &!i Io, args: &g Args, fs: &f Fs("")) -> [heap, io_write, err_write, args, fs_read(""), fs_write(""), file_read] int {
+    if arg_count(args) != 4 {
+        return refuse(heap, io, "rl.usage", "rl extract DEC PREFIX");
+    }
+    let (status, count) = rollout.extract(heap, fs, arg(args, 2), arg(args, 3));
+    if status == 1 {
+        return refuse(heap, io, "rl.extract.input", "the decoded replies cannot be read");
+    }
+    if status != 0 {
+        return refuse(heap, io, "rl.extract.write", "a candidate file cannot be written");
+    }
+    return pair_answer(heap, io, "programs", count, "written", count);
+}
+
+// rl samples META PROMPTS TASKS RESULTS OUT: the samples file for `rl pack` (lib/rl/rollout.cho).
+fn samples_command[&h, &i, &g, &f](heap: &!h Heap, io: &!i Io, args: &g Args, fs: &f Fs("")) -> [heap, io_write, err_write, args, fs_read(""), fs_write(""), file_read] int {
+    if arg_count(args) != 7 {
+        return refuse(heap, io, "rl.usage", "rl samples META PROMPTS TASKS RESULTS OUT");
+    }
+    let (status, count) = rollout.samples(heap, fs, arg(args, 2), arg(args, 3), arg(args, 4), arg(args, 5), arg(args, 6));
+    if status == 1 {
+        return refuse(heap, io, "rl.samples.input", "the meta, prompts or tasks file cannot be read");
+    }
+    if status == 2 {
+        return refuse(heap, io, "rl.samples.meta", "a line of the meta file is not `r task stopped n: ids`");
+    }
+    if status == 3 {
+        return refuse(heap, io, "rl.samples.task", "a task index is past the tasks file");
+    }
+    if status != 0 {
+        return refuse(heap, io, "rl.samples.write", "the samples file cannot be written");
+    }
+    return pair_answer(heap, io, "samples", count, "written", count);
 }
 
 // rl pack SAMPLES PREFIX NB T PAD: the samples (JSON lines) into K = ceil(kept / NB) batches of [NB, T], PREFIX.tokens.i32 and PREFIX.weights.f64 (lib/rl/pack.cho). One JSON
@@ -579,7 +708,9 @@ fn main(world: World) -> [] int {
                             } else if arg_count(g) >= 2 && bytes.equal(arg(g, 1), "split") {
                                 status = split_command(h, i, g, f);
                             } else if arg_count(g) >= 2 && bytes.equal(arg(g, 1), "prompt") {
-                                status = prompt_command(h, i, g, f);
+                                status = prompt_command(h, i, g, f, false);
+                            } else if arg_count(g) >= 2 && bytes.equal(arg(g, 1), "chat") {
+                                status = prompt_command(h, i, g, f, true);
                             } else if arg_count(g) >= 2 && bytes.equal(arg(g, 1), "report") {
                                 status = report_command(h, i, g, f, false);
                             } else if arg_count(g) >= 2 && bytes.equal(arg(g, 1), "tasks") {
@@ -588,8 +719,16 @@ fn main(world: World) -> [] int {
                                 status = pack_command(h, i, g, f);
                             } else if arg_count(g) >= 2 && bytes.equal(arg(g, 1), "adamw") {
                                 status = adamw_command(h, i, g, f);
+                            } else if arg_count(g) >= 2 && bytes.equal(arg(g, 1), "rollin") {
+                                status = rollin_command(h, i, g, f);
+                            } else if arg_count(g) >= 2 && bytes.equal(arg(g, 1), "complete") {
+                                status = complete_command(h, i, g, f);
+                            } else if arg_count(g) >= 2 && bytes.equal(arg(g, 1), "extract") {
+                                status = extract_command(h, i, g, f);
+                            } else if arg_count(g) >= 2 && bytes.equal(arg(g, 1), "samples") {
+                                status = samples_command(h, i, g, f);
                             } else {
-                                status = refuse(h, i, "rl.usage", "the commands are `rl grade`, `rl split`, `rl prompt`, `rl report`, `rl tasks`, `rl pack` and `rl adamw`");
+                                status = refuse(h, i, "rl.usage", "the commands are `rl grade`, `rl split`, `rl prompt`, `rl chat`, `rl report`, `rl tasks`, `rl pack`, `rl adamw`, `rl rollin`, `rl complete`, `rl extract` and `rl samples`");
                             }
                         }
                     }

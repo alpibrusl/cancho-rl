@@ -5,7 +5,7 @@ set -u
 cd "$(dirname "$0")/.." || exit 1
 C="${CANCHO:-cancho}"
 mkdir -p build work
-"$C" build lib/rl/text.cho lib/rl/side.cho lib/rl/grade.cho lib/rl/report.cho lib/rl/adv.cho lib/rl/adamw.cho lib/rl/pack.cho tools/rl/main.cho --std -o build/rl 2>&1 | grep -v "ld: warning" ; [ -x build/rl ] || { echo "FAIL build"; exit 1; }
+"$C" build lib/rl/text.cho lib/rl/side.cho lib/rl/grade.cho lib/rl/report.cho lib/rl/adv.cho lib/rl/adamw.cho lib/rl/pack.cho lib/rl/rollin.cho lib/rl/rollout.cho tools/rl/main.cho --std -o build/rl 2>&1 | grep -v "ld: warning" ; [ -x build/rl ] || { echo "FAIL build"; exit 1; }
 fail=0
 for t in $(ls tasks); do
     out=$(./build/rl grade "$C" "tasks/$t" "tasks/$t/reference.cho" "work/$t.cho")
@@ -81,6 +81,14 @@ if python3 -c 'import torch' 2>/dev/null; then
     python3 scripts/adamw_check.py build/rl > work/adamw_check.txt 2>&1 || { echo "FAIL adamw_check"; grep FAIL work/adamw_check.txt; fail=1; }
 else
     echo "skip adamw_check: torch is not installed"
+fi
+# the rollout glue (docs/design.md section 42): needs cancho-gpu's tokenizer and transformers; CANCHO_GPU=path/to/cancho-gpu, QWEN_TOKENIZER=path/to/tokenizer.json, QWEN_MODEL=model id
+if [ -n "${CANCHO_GPU:-}" ] && [ -n "${QWEN_TOKENIZER:-}" ] && python3 -c 'import transformers' 2>/dev/null; then
+    python3 scripts/chat_check.py build/rl "$CANCHO_GPU" "$QWEN_TOKENIZER" "${QWEN_MODEL:-Qwen/Qwen2.5-1.5B-Instruct}" > work/chat_check.txt 2>&1 || { echo "FAIL chat_check"; tail -3 work/chat_check.txt; fail=1; }
+    python3 scripts/rollin_check.py build/rl "$CANCHO_GPU" "$QWEN_TOKENIZER" > work/rollin_check.txt 2>&1 || { echo "FAIL rollin_check"; grep FAIL work/rollin_check.txt; fail=1; }
+    python3 scripts/rollout_check.py build/rl "$CANCHO_GPU" "$QWEN_TOKENIZER" "${QWEN_MODEL:-Qwen/Qwen2.5-1.5B-Instruct}" "$C" > work/rollout_check.txt 2>&1 || { echo "FAIL rollout_check"; grep FAIL work/rollout_check.txt; fail=1; }
+else
+    echo "skip chat_check, rollin_check, rollout_check: set CANCHO_GPU and QWEN_TOKENIZER (and have transformers) to run them"
 fi
 python3 scripts/crosscheck.py "$C" > work/crosscheck.txt 2>&1 || { echo "FAIL crosscheck"; grep DISAGREE work/crosscheck.txt; fail=1; }
 [ $fail = 0 ] && echo "gate: ok"
