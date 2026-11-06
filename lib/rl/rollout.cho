@@ -14,15 +14,71 @@ fn is_stop(id: int) -> [] bool {
     return id == 151645 || id == 151643;
 }
 
-// The integer at the start of `s` (digits; a fraction after a '.' is dropped: the session prints its ids as numbers).
+// The end of the number that starts at `at`: digits, an optional fraction, an optional exponent `e`, `E` with an optional sign and digits. The session prints its ids as shortest floats
+// (73595 is `7.3595e4`, 1 is `1e0`), so a number is not just digits.
+fn num_end[&t](s: &t [byte], at: int) -> [] int {
+    var to = at;
+    while to < len(s) && (bytes.is_digit(int_of(s[to])) || int_of(s[to]) == 46) {
+        to = to + 1;
+    }
+    if to < len(s) && (int_of(s[to]) == 101 || int_of(s[to]) == 69) {
+        var k = to + 1;
+        if k < len(s) && (int_of(s[k]) == 43 || int_of(s[k]) == 45) {
+            k = k + 1;
+        }
+        if k < len(s) && bytes.is_digit(int_of(s[k])) {
+            while k < len(s) && bytes.is_digit(int_of(s[k])) {
+                k = k + 1;
+            }
+            to = k;
+        }
+    }
+    return to;
+}
+
+// The integer value of a number as `num_end` reads it: the digits with the exponent applied (a fraction that is left over is dropped).
 fn num_at[&t](s: &t [byte]) -> [] int {
-    var v = 0;
+    var mant = 0;
+    var frac = 0;
+    var seen_dot = false;
     var i = 0;
-    while i < len(s) && bytes.is_digit(int_of(s[i])) {
-        v = v * 10 + (int_of(s[i]) - 48);
+    while i < len(s) && (bytes.is_digit(int_of(s[i])) || int_of(s[i]) == 46) {
+        if int_of(s[i]) == 46 {
+            seen_dot = true;
+        } else {
+            mant = mant * 10 + (int_of(s[i]) - 48);
+            if seen_dot {
+                frac = frac + 1;
+            }
+        }
         i = i + 1;
     }
-    return v;
+    var ex = 0;
+    if i < len(s) && (int_of(s[i]) == 101 || int_of(s[i]) == 69) {
+        i = i + 1;
+        var neg = false;
+        if i < len(s) && (int_of(s[i]) == 43 || int_of(s[i]) == 45) {
+            neg = int_of(s[i]) == 45;
+            i = i + 1;
+        }
+        while i < len(s) && bytes.is_digit(int_of(s[i])) {
+            ex = ex * 10 + (int_of(s[i]) - 48);
+            i = i + 1;
+        }
+        if neg {
+            ex = 0 - ex;
+        }
+    }
+    var shift = ex - frac;
+    while shift > 0 && mant < 1000000000 {
+        mant = mant * 10;
+        shift = shift - 1;
+    }
+    while shift < 0 {
+        mant = mant / 10;
+        shift = shift + 1;
+    }
+    return mant;
 }
 
 fn path_of[&h, &p](heap: &!h Heap, prefix: &p [byte], middle: int, tail: &static [byte]) -> [heap] buffer.Buffer {
@@ -71,10 +127,7 @@ pub fn complete[&h, &f, &i, &p](heap: &!h Heap, fs: &f Fs(""), ids: &i [byte], g
             while at < len(all) && !bytes.is_digit(int_of(all[at])) {
                 at = at + 1;
             }
-            var to = at;
-            while to < len(all) && (bytes.is_digit(int_of(all[to])) || int_of(all[to]) == 46) {
-                to = to + 1;
-            }
+            let to = num_end(all, at);
             if to > at {
                 nums = nums + 1;
             }
@@ -96,10 +149,7 @@ pub fn complete[&h, &f, &i, &p](heap: &!h Heap, fs: &f Fs(""), ids: &i [byte], g
                     while at < len(all) && !bytes.is_digit(int_of(all[at])) {
                         at = at + 1;
                     }
-                    var to = at;
-                    while to < len(all) && (bytes.is_digit(int_of(all[to])) || int_of(all[to]) == 46) {
-                        to = to + 1;
-                    }
+                    let to = num_end(all, at);
                     if !done {
                         let id = num_at(all[at..to]) - 1;
                         if n > 0 {

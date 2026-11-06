@@ -27,6 +27,9 @@ tasks = ["abs_val", "max4"]
 G, STEPS = 4, 160
 d = tempfile.mkdtemp(prefix="rollout_")
 ref = {t: open(f"tasks/{t}/reference.cho").read() for t in tasks}
+def sess(n):  # a number as the decode session prints it: the shortest float, 73595 as 7.3595e4, 1 as 1e0
+    d = str(n); e = len(d) - 1; m = d.rstrip("0") or "0"
+    return (m[0] + ("." + m[1:] if len(m) > 1 else "") + f"e{e}") if n > 0 else "0e0"
 def block(code): return "```cancho\n" + code + "```"
 replies = {  # per task: four replies and how each ends
     0: [(block(ref["abs_val"]), "stop"), ("Here is the code:\n" + block("edition 7;\nfn abs_val(n: int) -> [] int { return n; }\n") + "\nIt returns n.", "stop"), ("I think you should use a loop. 你好 🙂 \"quoted\" \\ back", "stop"), (block(ref["abs_val"]) + " and then it goes on and on", "cut")],
@@ -45,7 +48,7 @@ for t_i in (0, 1):
             comp, dec_ids = ids + [end], list(ids)
             ids = comp + [rng.randrange(1000) for _ in range(STEPS - len(comp))]   # more draws after the stop: ignored
         rows.append([i + 1 for i in ids[:STEPS]]); want.append((comp, dec_ids, how))
-open(f"{d}/draws", "w").write("\n".join(" ".join(map(str, r)) for r in rows) + "\n")
+open(f"{d}/draws", "w").write(" ".join(sess(x) for r in rows for x in r) + "\n")   # one line, as the session answers
 r = subprocess.run([RL, "complete", f"{d}/draws", str(G), str(STEPS), f"{d}/c"], capture_output=True, text=True)
 say(r.returncode == 0 and json.loads(r.stdout) == {"sequences": 8, "stopped": 7}, f"rl complete: {r.stdout.strip()} {r.stderr.strip()[:80]}")
 meta = open(f"{d}/c.meta").read().splitlines()
