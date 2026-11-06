@@ -1,7 +1,9 @@
 """R2 (docs/design.md section 30): the policy-gradient (advantage-weighted) loss gradient of the LoRA adapters of Qwen2.5-1.5B-Instruct on a real batch, in a cancho-gpu
 Metal session with the loss weight `wt[i] = advantage x completion mask x loss_scale` (the resident file `wscale`), against peft's float32 autograd on the CPU. A comparison helper.
 
-  GPU=<cancho-gpu checkout> QWEN_WEIGHTS=<convert.py output of the Instruct model> METAL=<cancho-gpu-metal-session> python3 scripts/r2_grad.py BATCH.npz WORKDIR [--b-std 0.02] [--loss-scale 16]
+  GPU=<cancho-gpu checkout> QWEN_WEIGHTS=<convert.py output of the Instruct model> METAL=<cancho-gpu-metal-session> [QSW=<build/qsw>] python3 scripts/r2_grad.py BATCH.npz WORKDIR [--b-std 0.02] [--loss-scale 16]
+
+With QSW the session is written by the cancho writer (`qsw write ... --no-train --grads --weights`); without it by qwen_train.py (Python) with `wscale` overwritten.
 
 The loss both sides compute is  sum over completion tokens of  A_seq x CE(token) / N,  N the number of completion tokens (the quantity r1_grpo.py minimises, one update a batch).
 The session writes sum_i wt[i] (softmax - onehot) f16, and `split_grads` divides the loss scale and N out."""
@@ -60,11 +62,25 @@ ref = np.load(ref_path)
 # --- the session, with the weights written into wscale
 d = os.path.join(work, "s")
 os.makedirs(d, exist_ok=True)
-sess = T.write(d, c, W, tok.astype(np.int32), AB, r=16, loss_scale=ls, train=False, grads=os.path.join(d, "grads.bin"))
-(wf,) = glob.glob(os.path.join(d, "wscale*"))
-default = np.fromfile(wf, dtype="<f4")
-assert default.size == nb * t
-(wt * ls).reshape(-1).astype("<f4").tofile(wf)
+if os.environ.get("QSW"):
+    import subprocess
+    fl = {"layers": c.layers, "d": c.d, "h": c.h, "hkv": c.hkv, "dh": c.dh, "ff": c.ff, "v": c.v, "t": c.t, "nb": c.nb, "tied": int(c.tied), "r": 16, "steps": 1}
+    open(os.path.join(work, "cfg.txt"), "w").write("".join(f"{k} {v}\n" for k, v in fl.items()))
+    tok.astype("<i4").tofile(os.path.join(work, "tokens.i32"))
+    with open(os.path.join(work, "adapters.f64"), "wb") as f:
+        for nm in R.lora_names(c):
+            f.write(np.asarray(AB[nm], dtype="<f8").reshape(-1).tobytes())
+    wt.astype("<f8").tofile(os.path.join(work, "wt.f64"))
+    done = subprocess.run([os.environ["QSW"], "write", "--config", os.path.join(work, "cfg.txt"), "--wdir", os.path.abspath(W), "--out", os.path.abspath(d), "--root", GPU, "--tokens", os.path.join(work, "tokens.i32"),
+                           "--adapters", os.path.join(work, "adapters.f64"), "--weights", os.path.join(work, "wt.f64"), "--no-train", "--grads", os.path.abspath(os.path.join(d, "grads.bin"))], capture_output=True, text=True)
+    assert done.returncode == 0, done.stderr
+    sess = os.path.join(os.path.abspath(d), "session")
+    print("session written by qsw", flush=True)
+else:
+    sess = T.write(d, c, W, tok.astype(np.int32), AB, r=16, loss_scale=ls, train=False, grads=os.path.join(d, "grads.bin"))
+    (wf,) = glob.glob(os.path.join(d, "wscale*"))
+    assert np.fromfile(wf, dtype="<f4").size == nb * t
+    (wt * ls).reshape(-1).astype("<f4").tofile(wf)
 ss = S.Session(METAL, sess)
 out, first = ss.ask("1")
 ss.checkpoint(); ss.close()
