@@ -59,6 +59,7 @@ gt0=$(date +%s.%N)
 for ((k = 0; k < NB; k += 6)); do for ((j = k; j < k + 6 && j < NB; j++)); do grade_one $j & done; wait; done
 printf '%-12s %7.1f s\n' grade "$(echo "$(date +%s.%N) - $gt0" | bc)" | tee -a "$OUT/times.txt" >&2
 tm samples "$RL" samples "$OUT/c.meta" "$OUT/prompts.txt" "$OUT/tasks.txt" "$OUT/res" "$OUT/samples.jsonl" > "$OUT/samples.json" || die samples
+[ "${EVAL:-0}" = 1 ] && exit 0   # an evaluation: sampled and graded, no update
 tm pack "$RL" pack "$OUT/samples.jsonl" "$OUT/pk" "$NBT" "$T" "$PAD" > "$OUT/pack.json" || die pack
 cat "$OUT/pack.json"
 [ -f "$OUT/pk.tokens.i32" ] || { echo "nothing kept: no update (every group had equal rewards)"; exit 0; }
