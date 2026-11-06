@@ -307,8 +307,8 @@ fn report_command[&h, &i, &g, &f](heap: &!h Heap, io: &!i Io, args: &g Args, fs:
     return status;
 }
 
-// rl pack SAMPLES PREFIX NB T PAD: the samples (JSON lines) into one [NB, T] batch, PREFIX.tokens.i32 and PREFIX.weights.f64 (lib/rl/pack.cho). One JSON object on
-// standard output: how many samples, how many kept (non-zero advantage) and their completion tokens. Nothing is written when none is kept.
+// rl pack SAMPLES PREFIX NB T PAD: the samples (JSON lines) into K = ceil(kept / NB) batches of [NB, T], PREFIX.tokens.i32 and PREFIX.weights.f64 (lib/rl/pack.cho). One JSON
+// object on standard output: how many samples, how many kept (non-zero advantage), the batches and the completion tokens. Nothing is written when none is kept.
 fn pack_command[&h, &i, &g, &f](heap: &!h Heap, io: &!i Io, args: &g Args, fs: &f Fs("")) -> [heap, io_write, err_write, args, fs_read(""), fs_write(""), file_read] int {
     if arg_count(args) != 7 {
         return refuse(heap, io, "rl.usage", "rl pack SAMPLES PREFIX NB T PAD");
@@ -326,9 +326,6 @@ fn pack_command[&h, &i, &g, &f](heap: &!h Heap, io: &!i Io, args: &g Args, fs: &
     if status == 2 {
         return refuse(heap, io, "rl.pack.sample", "a line is not {group, reward, prompt, completion} with integer token lists");
     }
-    if status == 3 {
-        return refuse(heap, io, "rl.pack.overflow", "more samples with a non-zero advantage than rows (NB): split the samples into batches");
-    }
     if status == 4 {
         return refuse(heap, io, "rl.pack.long", "a kept sample is longer than T");
     }
@@ -341,6 +338,8 @@ fn pack_command[&h, &i, &g, &f](heap: &!h Heap, io: &!i Io, args: &g Args, fs: &
     w = json.put_int(heap, w, total);
     w = json.put_key(heap, w, "kept");
     w = json.put_int(heap, w, kept);
+    w = json.put_key(heap, w, "batches");
+    w = json.put_int(heap, w, (kept + nb - 1) / nb);
     w = json.put_key(heap, w, "completion_tokens");
     w = json.put_int(heap, w, ntok);
     w = json.end_object(heap, w);
