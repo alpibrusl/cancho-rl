@@ -1,0 +1,187 @@
+edition 9;
+
+module rl.rollin;
+
+// `rl rollin`: the inputs of one rollout (docs/design.md section 42). The prompts are the output of `cancho-gpu tokenize` over the chat-templated prompts of `rl chat` (one record each,
+// a line `ids N: a b c ...` for each); `group` samples are drawn for each prompt, so there are nb = prompts * group sequences (at most 32).
+//
+// Files, PREFIX.<name>:
+//   prefill.i32   int32 [1, P, T]   the P distinct prompts, padded with `pad` to T: the tokens file of `qsw write --no-train --kv-export` (one step, nb = P, t = T)
+//   tokens.i32    int32 [nb, steps] row r holds the last token of prompt r / group, then zeros: the decode's first token (the prefill has the rest)
+//   lens.i32      int32 [nb]        all 1
+//   pos0.i32      int32 [nb]        the prompt's length minus 1: the position of the first decode step
+//   uniforms.f64  binary64 [steps, nb]  the random number of each step and sequence, uniform in [0, 1), from `seed` (Park-Miller, a 31-bit generator: enough for f32 draws)
+//   plens.txt     the prompt lengths, one a line
+
+import rl.text;
+import std.buffer;
+import std.bytes;
+
+fn le[&h](heap: &!h Heap, b: buffer.Buffer, word: int, count: int) -> [heap] buffer.Buffer {
+    var out = b;
+    var i = 0;
+    while i < count {
+        out = buffer.push(heap, out, byte_of(word >> 8 * i & 255));
+        i = i + 1;
+    }
+    return out;
+}
+
+// The next state of the Lehmer generator x -> 48271 x mod (2^31 - 1); a state is in 1 .. 2^31 - 2.
+fn next(x: int) -> [] int {
+    return x * 48271 % 2147483647;
+}
+
+// The state a seed starts from.
+fn start(seed: int) -> [] int {
+    var x = seed % 2147483646;
+    if x < 0 {
+        x = 0 - x;
+    }
+    x = x + 1;
+    return next(next(x));
+}
+
+fn save[&h, &f, &p](heap: &!h Heap, fs: &f Fs(""), prefix: &p [byte], name: &static [byte], b: buffer.Buffer) -> [heap, fs_write("")] int {
+    var path = buffer.append(heap, buffer.empty(heap, 64), prefix);
+    path = buffer.append(heap, path, name);
+    var bad = 0;
+    borrow path as &pr in {
+        borrow b as &br in {
+            if fs_write(fs, buffer.bytes(pr), buffer.bytes(br)) < 0 {
+                bad = 1;
+            }
+        }
+    }
+    buffer.drop(heap, path);
+    buffer.drop(heap, b);
+    return bad;
+}
+
+// Answers (status, prompts, sequences): 0 ok; 1 the prompts file cannot be read; 2 it has no `ids` line or a prompt is empty; 3 more than 32 sequences; 4 a prompt and the steps do not
+// fit in `t` (length + steps > t); 5 a file cannot be written.
+pub fn run[&h, &f, &s, &p](heap: &!h Heap, fs: &f Fs(""), prompts: &s [byte], group: int, t: int, steps: int, pad: int, seed: int, prefix: &p [byte]) -> [heap, fs_read(""), fs_write(""), file_read] (int, int, int) {
+    let (file, failed) = text.read_file(heap, fs, prompts);
+    if failed != 0 {
+        buffer.drop(heap, file);
+        return (1, 0, 0);
+    }
+    var status = 0;
+    var count = 0;
+    var prefill = buffer.empty(heap, 8);
+    var lasts = buffer.empty(heap, 8);
+    var plens = buffer.empty(heap, 8);
+    var plen_txt = buffer.empty(heap, 8);
+    borrow file as &fb in {
+        let all = buffer.bytes(fb);
+        let lines = text.line_count(all);
+        var k = 1;
+        while k <= lines && status == 0 {
+            let ln = text.line(all, k);
+            if bytes.starts_with(ln, "ids ") {
+                var at = 4;
+                while at < len(ln) && int_of(ln[at]) != 58 {
+                    at = at + 1;
+                }
+                at = at + 1;
+                var n = 0;
+                var last = 0;
+                while at < len(ln) {
+                    while at < len(ln) && int_of(ln[at]) == 32 {
+                        at = at + 1;
+                    }
+                    var to = at;
+                    while to < len(ln) && int_of(ln[to]) != 32 {
+                        to = to + 1;
+                    }
+                    if to > at {
+                        if n < t {
+                            last = text.parse_int(ln[at..to]);
+                            prefill = le(heap, prefill, last, 4);
+                        }
+                        n = n + 1;
+                    }
+                    at = to;
+                }
+                if n == 0 {
+                    status = 2;
+                } else if n + steps > t {
+                    status = 4;
+                } else {
+                    var pad_to = n;
+                    while pad_to < t {
+                        prefill = le(heap, prefill, pad, 4);
+                        pad_to = pad_to + 1;
+                    }
+                    lasts = le(heap, lasts, last, 4);
+                    plens = le(heap, plens, n - 1, 4);
+                    plen_txt = text.push_int(heap, plen_txt, n);
+                    plen_txt = buffer.push(heap, plen_txt, byte_of(10));
+                    count = count + 1;
+                }
+            }
+            k = k + 1;
+        }
+    }
+    buffer.drop(heap, file);
+    if status == 0 && count == 0 {
+        status = 2;
+    }
+    if status == 0 && count * group > 32 {
+        status = 3;
+    }
+    if status == 0 {
+        let nb = count * group;
+        var tokens = buffer.empty(heap, 4 * nb * steps + 8);
+        var lens = buffer.empty(heap, 4 * nb + 8);
+        var pos0 = buffer.empty(heap, 4 * nb + 8);
+        var uni = buffer.empty(heap, 8 * nb * steps + 8);
+        borrow lasts as &lr in {
+            borrow plens as &pr in {
+                var r = 0;
+                while r < nb {
+                    let who = r / group;
+                    var j = 0;
+                    while j < steps {
+                        if j == 0 {
+                            tokens = buffer.append(heap, tokens, buffer.bytes(lr)[4 * who..4 * who + 4]);
+                        } else {
+                            tokens = le(heap, tokens, 0, 4);
+                        }
+                        j = j + 1;
+                    }
+                    lens = le(heap, lens, 1, 4);
+                    pos0 = buffer.append(heap, pos0, buffer.bytes(pr)[4 * who..4 * who + 4]);
+                    r = r + 1;
+                }
+            }
+        }
+        var x = start(seed);
+        var i = 0;
+        while i < nb * steps {
+            x = next(x);
+            var u = float_of(x - 1) / 2147483648.0;
+            if u > 0.99999994 {
+                u = 0.99999994;
+            }
+            uni = le(heap, uni, bits_of(u), 8);
+            i = i + 1;
+        }
+        var bad = save(heap, fs, prefix, ".prefill.i32", prefill);
+        prefill = buffer.empty(heap, 8);
+        bad = bad + save(heap, fs, prefix, ".tokens.i32", tokens);
+        bad = bad + save(heap, fs, prefix, ".lens.i32", lens);
+        bad = bad + save(heap, fs, prefix, ".pos0.i32", pos0);
+        bad = bad + save(heap, fs, prefix, ".uniforms.f64", uni);
+        bad = bad + save(heap, fs, prefix, ".plens.txt", plen_txt);
+        plen_txt = buffer.empty(heap, 8);
+        if bad > 0 {
+            status = 5;
+        }
+    }
+    buffer.drop(heap, prefill);
+    buffer.drop(heap, lasts);
+    buffer.drop(heap, plens);
+    buffer.drop(heap, plen_txt);
+    return (status, count, count * group);
+}

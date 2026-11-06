@@ -1,0 +1,501 @@
+edition 9;
+
+module rl.rollout;
+
+// The rollout glue between the decode session and `rl pack` (docs/design.md section 42): `complete` (the ids a decode answered, cut at the end of the turn), `extract` (the decoded replies
+// into candidate programs, as scripts/r1_grpo.py's `extract` does) and `samples` (the prompts, the completions and the graded rewards into the samples file `rl pack` reads).
+
+import rl.text;
+import std.buffer;
+import std.bytes;
+
+// Qwen2.5's end of turn (<|im_end|>) and end of text (<|endoftext|>), as token ids.
+fn is_stop(id: int) -> [] bool {
+    return id == 151645 || id == 151643;
+}
+
+// The end of the number that starts at `at`: digits, an optional fraction, an optional exponent `e`, `E` with an optional sign and digits. The session prints its ids as shortest floats
+// (73595 is `7.3595e4`, 1 is `1e0`), so a number is not just digits.
+fn num_end[&t](s: &t [byte], at: int) -> [] int {
+    var to = at;
+    while to < len(s) && (bytes.is_digit(int_of(s[to])) || int_of(s[to]) == 46) {
+        to = to + 1;
+    }
+    if to < len(s) && (int_of(s[to]) == 101 || int_of(s[to]) == 69) {
+        var k = to + 1;
+        if k < len(s) && (int_of(s[k]) == 43 || int_of(s[k]) == 45) {
+            k = k + 1;
+        }
+        if k < len(s) && bytes.is_digit(int_of(s[k])) {
+            while k < len(s) && bytes.is_digit(int_of(s[k])) {
+                k = k + 1;
+            }
+            to = k;
+        }
+    }
+    return to;
+}
+
+// The integer value of a number as `num_end` reads it: the digits with the exponent applied (a fraction that is left over is dropped).
+fn num_at[&t](s: &t [byte]) -> [] int {
+    var mant = 0;
+    var frac = 0;
+    var seen_dot = false;
+    var i = 0;
+    while i < len(s) && (bytes.is_digit(int_of(s[i])) || int_of(s[i]) == 46) {
+        if int_of(s[i]) == 46 {
+            seen_dot = true;
+        } else {
+            mant = mant * 10 + (int_of(s[i]) - 48);
+            if seen_dot {
+                frac = frac + 1;
+            }
+        }
+        i = i + 1;
+    }
+    var ex = 0;
+    if i < len(s) && (int_of(s[i]) == 101 || int_of(s[i]) == 69) {
+        i = i + 1;
+        var neg = false;
+        if i < len(s) && (int_of(s[i]) == 43 || int_of(s[i]) == 45) {
+            neg = int_of(s[i]) == 45;
+            i = i + 1;
+        }
+        while i < len(s) && bytes.is_digit(int_of(s[i])) {
+            ex = ex * 10 + (int_of(s[i]) - 48);
+            i = i + 1;
+        }
+        if neg {
+            ex = 0 - ex;
+        }
+    }
+    var shift = ex - frac;
+    while shift > 0 && mant < 1000000000 {
+        mant = mant * 10;
+        shift = shift - 1;
+    }
+    while shift < 0 {
+        mant = mant / 10;
+        shift = shift + 1;
+    }
+    return mant;
+}
+
+fn path_of[&h, &p](heap: &!h Heap, prefix: &p [byte], middle: int, tail: &static [byte]) -> [heap] buffer.Buffer {
+    var b = buffer.append(heap, buffer.empty(heap, 64), prefix);
+    if middle >= 0 {
+        b = buffer.push(heap, b, byte_of(46));
+        b = buffer.push_nat(heap, b, middle);
+    }
+    return buffer.append(heap, b, tail);
+}
+
+fn write_to[&h, &f](heap: &!h Heap, fs: &f Fs(""), path: buffer.Buffer, content: buffer.Buffer) -> [heap, fs_write("")] int {
+    var bad = 0;
+    borrow path as &pr in {
+        borrow content as &cr in {
+            if fs_write(fs, buffer.bytes(pr), buffer.bytes(cr)) < 0 {
+                bad = 1;
+            }
+        }
+    }
+    buffer.drop(heap, path);
+    buffer.drop(heap, content);
+    return bad;
+}
+
+// `complete IDS GROUP STEPS PREFIX`: IDS is the decode session's answer, the draws [nb, steps] as numbers (1-based ids). For each sequence the completion is the draws up to and including
+// the first end-of-turn or end-of-text token (all STEPS when there is none: the sample was cut off). Writes PREFIX.ids (one line a sequence, the 0-based ids without the stop token: the
+// input of `cancho-gpu detokenize`, which is what a decode with skip_special_tokens gives) and PREFIX.meta (one line a sequence: `r task stopped n: ids`, the ids with the stop token,
+// task = r / GROUP). Answers (status, sequences, stopped): 0 ok; 1 the file cannot be read; 2 the count of numbers is not a multiple of STEPS; 5 a file cannot be written.
+pub fn complete[&h, &f, &i, &p](heap: &!h Heap, fs: &f Fs(""), ids: &i [byte], group: int, steps: int, prefix: &p [byte]) -> [heap, fs_read(""), fs_write(""), file_read] (int, int, int) {
+    let (file, failed) = text.read_file(heap, fs, ids);
+    if failed != 0 {
+        buffer.drop(heap, file);
+        return (1, 0, 0);
+    }
+    var nums = 0;
+    var seqs = 0;
+    var stopped = 0;
+    var status = 0;
+    var dec = buffer.empty(heap, 1024);
+    var meta = buffer.empty(heap, 1024);
+    borrow file as &fb in {
+        let all = buffer.bytes(fb);
+        var at = 0;
+        while at < len(all) {
+            while at < len(all) && !bytes.is_digit(int_of(all[at])) {
+                at = at + 1;
+            }
+            let to = num_end(all, at);
+            if to > at {
+                nums = nums + 1;
+            }
+            at = to;
+        }
+        if nums == 0 || nums % steps != 0 {
+            status = 2;
+        } else {
+            let nb = nums / steps;
+            var r = 0;
+            at = 0;
+            while r < nb {
+                var j = 0;
+                var n = 0;
+                var done = false;
+                var comp = buffer.empty(heap, 256);
+                var line = buffer.empty(heap, 256);
+                while j < steps {
+                    while at < len(all) && !bytes.is_digit(int_of(all[at])) {
+                        at = at + 1;
+                    }
+                    let to = num_end(all, at);
+                    if !done {
+                        let id = num_at(all[at..to]) - 1;
+                        if n > 0 {
+                            comp = buffer.push(heap, comp, byte_of(32));
+                        }
+                        comp = text.push_int(heap, comp, id);
+                        if is_stop(id) {
+                            done = true;
+                        } else {
+                            if n > 0 {
+                                line = buffer.push(heap, line, byte_of(32));
+                            }
+                            line = text.push_int(heap, line, id);
+                        }
+                        n = n + 1;
+                    }
+                    at = to;
+                    j = j + 1;
+                }
+                if done {
+                    stopped = stopped + 1;
+                }
+                borrow line as &lr in {
+                    dec = buffer.append(heap, dec, buffer.bytes(lr));
+                }
+                dec = buffer.push(heap, dec, byte_of(10));
+                meta = buffer.push_nat(heap, meta, r);
+                meta = buffer.push(heap, meta, byte_of(32));
+                meta = buffer.push_nat(heap, meta, r / group);
+                meta = buffer.push(heap, meta, byte_of(32));
+                if done {
+                    meta = buffer.push(heap, meta, byte_of(49));
+                } else {
+                    meta = buffer.push(heap, meta, byte_of(48));
+                }
+                meta = buffer.push(heap, meta, byte_of(32));
+                meta = buffer.push_nat(heap, meta, n);
+                meta = buffer.append(heap, meta, ": ");
+                borrow comp as &cr in {
+                    meta = buffer.append(heap, meta, buffer.bytes(cr));
+                }
+                meta = buffer.push(heap, meta, byte_of(10));
+                buffer.drop(heap, comp);
+                buffer.drop(heap, line);
+                seqs = seqs + 1;
+                r = r + 1;
+            }
+        }
+    }
+    buffer.drop(heap, file);
+    if status == 0 {
+        let a = write_to(heap, fs, path_of(heap, prefix, 0 - 1, ".ids"), dec);
+        let b = write_to(heap, fs, path_of(heap, prefix, 0 - 1, ".meta"), meta);
+        if a + b > 0 {
+            status = 5;
+        }
+    } else {
+        buffer.drop(heap, dec);
+        buffer.drop(heap, meta);
+    }
+    return (status, seqs, stopped);
+}
+
+// ---- extract -------------------------------------------------------------------------------------------------------------------------------
+
+// The byte a `\xNN` escape or a plain character stands for at `s[i]`; (byte, width).
+fn unescape_at[&t](s: &t [byte], i: int) -> [] (int, int) {
+    let c = int_of(s[i]);
+    if c != 92 || i + 1 >= len(s) {
+        return (c, 1);
+    }
+    let d = int_of(s[i + 1]);
+    if d == 120 && i + 3 < len(s) {
+        return (hex(int_of(s[i + 2])) * 16 + hex(int_of(s[i + 3])), 4);
+    }
+    return (d, 2);
+}
+
+fn hex(c: int) -> [] int {
+    if c >= 97 {
+        return c - 87;
+    }
+    if c >= 65 {
+        return c - 55;
+    }
+    return c - 48;
+}
+
+// The text of a `dec "..."` line: the bytes inside the quotes with `\xNN`, `\"` and `\\` undone.
+fn unquote[&h, &t](heap: &!h Heap, line: &t [byte]) -> [heap] buffer.Buffer {
+    var out = buffer.empty(heap, len(line));
+    var i = 5;
+    while i < len(line) - 1 {
+        let (b, w) = unescape_at(line, i);
+        out = buffer.push(heap, out, byte_of(b));
+        i = i + w;
+    }
+    return out;
+}
+
+// scripts/r1_grpo.py's `extract`: the lines between a line that starts with ```cancho and the next line that starts with ```, joined with newlines, plus a final one.
+fn code_of[&h, &t](heap: &!h Heap, reply: &t [byte]) -> [heap] buffer.Buffer {
+    var out = buffer.empty(heap, len(reply) + 8);
+    let n = text.line_count(reply);
+    var on = false;
+    var k = 1;
+    var first = true;
+    while k <= n {
+        let ln = text.line(reply, k);
+        if bytes.starts_with(ln, "```cancho") {
+            on = true;
+        } else if bytes.starts_with(ln, "```") {
+            on = false;
+        } else if on {
+            if !first {
+                out = buffer.push(heap, out, byte_of(10));
+            }
+            out = buffer.append(heap, out, ln);
+            first = false;
+        }
+        k = k + 1;
+    }
+    return buffer.push(heap, out, byte_of(10));
+}
+
+// `extract DEC PREFIX`: for the k-th `dec "..."` line of `cancho-gpu detokenize`'s output, PREFIX.k.cho holds the program of its fenced block (just a newline when there is none: a program
+// that does not build, reward 0). Answers (status, programs): 0 ok; 1 the file cannot be read; 5 a file cannot be written.
+pub fn extract[&h, &f, &d, &p](heap: &!h Heap, fs: &f Fs(""), dec: &d [byte], prefix: &p [byte]) -> [heap, fs_read(""), fs_write(""), file_read] (int, int) {
+    let (file, failed) = text.read_file(heap, fs, dec);
+    if failed != 0 {
+        buffer.drop(heap, file);
+        return (1, 0);
+    }
+    var status = 0;
+    var count = 0;
+    borrow file as &fb in {
+        let all = buffer.bytes(fb);
+        let lines = text.line_count(all);
+        var k = 1;
+        while k <= lines {
+            let ln = text.line(all, k);
+            if bytes.starts_with(ln, "dec \"") {
+                let reply = unquote(heap, ln);
+                var code = buffer.empty(heap, 8);
+                borrow reply as &rr in {
+                    buffer.drop(heap, code);
+                    code = code_of(heap, buffer.bytes(rr));
+                }
+                buffer.drop(heap, reply);
+                if write_to(heap, fs, path_of(heap, prefix, count, ".cho"), code) > 0 {
+                    status = 5;
+                }
+                count = count + 1;
+            }
+            k = k + 1;
+        }
+    }
+    buffer.drop(heap, file);
+    return (status, count);
+}
+
+// ---- samples -------------------------------------------------------------------------------------------------------------------------------
+
+// The text after `"reward":` in a grade result, up to the next comma or brace; empty when there is none.
+fn reward_text[&t](result: &t [byte]) -> [] &t [byte] {
+    let key = "\"reward\":";
+    var i = 0;
+    while i + len(key) <= len(result) {
+        if bytes.starts_with(result[i..len(result)], key) {
+            var to = i + len(key);
+            while to < len(result) && int_of(result[to]) != 44 && int_of(result[to]) != 125 {
+                to = to + 1;
+            }
+            return bytes.trim(result[i + len(key)..to]);
+        }
+        i = i + 1;
+    }
+    return result[0..0];
+}
+
+// The reward text of sequence `seq` from RESULTS.seq.json: "0" when the file is missing or has none.
+fn read_reward[&h, &f, &r](heap: &!h Heap, fs: &f Fs(""), results: &r [byte], seq: int) -> [heap, fs_read(""), file_read] buffer.Buffer {
+    let rpath = path_of(heap, results, seq, ".json");
+    var reward = buffer.append(heap, buffer.empty(heap, 16), "0");
+    var body = buffer.empty(heap, 8);
+    var rfail = 1;
+    borrow rpath as &rp in {
+        let (b, fl) = text.read_file(heap, fs, buffer.bytes(rp));
+        buffer.drop(heap, body);
+        body = b;
+        rfail = fl;
+    }
+    buffer.drop(heap, rpath);
+    if rfail == 0 {
+        var found = buffer.empty(heap, 16);
+        var have = 0;
+        borrow body as &rb in {
+            let rt = reward_text(buffer.bytes(rb));
+            have = len(rt);
+            found = buffer.append(heap, found, rt);
+        }
+        if have > 0 {
+            buffer.drop(heap, reward);
+            reward = found;
+        } else {
+            buffer.drop(heap, found);
+        }
+    }
+    buffer.drop(heap, body);
+    return reward;
+}
+
+// The ids of the k-th `ids N: ...` line of a `cancho-gpu tokenize` output, as the text of a JSON array.
+fn prompt_array[&h, &t](heap: &!h Heap, out: buffer.Buffer, all: &t [byte], which: int) -> [heap] buffer.Buffer {
+    var b = buffer.push(heap, out, byte_of(91));
+    let lines = text.line_count(all);
+    var seen = 0;
+    var k = 1;
+    while k <= lines {
+        let ln = text.line(all, k);
+        if bytes.starts_with(ln, "ids ") {
+            if seen == which {
+                var at = 4;
+                while at < len(ln) && int_of(ln[at]) != 58 {
+                    at = at + 1;
+                }
+                var first = true;
+                while at < len(ln) {
+                    while at < len(ln) && !bytes.is_digit(int_of(ln[at])) {
+                        at = at + 1;
+                    }
+                    var to = at;
+                    while to < len(ln) && bytes.is_digit(int_of(ln[to])) {
+                        to = to + 1;
+                    }
+                    if to > at {
+                        if !first {
+                            b = buffer.push(heap, b, byte_of(44));
+                        }
+                        b = buffer.append(heap, b, ln[at..to]);
+                        first = false;
+                    }
+                    at = to;
+                }
+            }
+            seen = seen + 1;
+        }
+        k = k + 1;
+    }
+    return buffer.push(heap, b, byte_of(93));
+}
+
+// `samples META PROMPTS TASKS RESULTS OUT`: the samples file `rl pack` reads. META is `complete`'s, PROMPTS the `cancho-gpu tokenize` output of the prompts (the task-th `ids` line is the
+// prompt), TASKS one task name a line (the group of the task-th prompt) and RESULTS the prefix of the grade results (RESULTS.r.json for sequence r; a missing or unreadable one is a reward
+// of 0: a program that crashed the grader is no reason to crash the trainer). Answers (status, samples): 0 ok; 1 META, PROMPTS or TASKS cannot be read; 2 a META line is malformed;
+// 3 a task index past TASKS; 5 OUT cannot be written.
+pub fn samples[&h, &f, &m, &p, &t, &r, &o](heap: &!h Heap, fs: &f Fs(""), meta: &m [byte], prompts: &p [byte], tasks: &t [byte], results: &r [byte], out: &o [byte]) -> [heap, fs_read(""), fs_write(""), file_read] (int, int) {
+    let (mf, mfail) = text.read_file(heap, fs, meta);
+    let (pf, pfail) = text.read_file(heap, fs, prompts);
+    let (tf, tfail) = text.read_file(heap, fs, tasks);
+    var status = 0;
+    var count = 0;
+    var lines_out = buffer.empty(heap, 4096);
+    if mfail != 0 || pfail != 0 || tfail != 0 {
+        status = 1;
+    } else {
+        borrow mf as &mb in {
+            borrow pf as &pb in {
+                borrow tf as &tb in {
+                    let all = buffer.bytes(mb);
+                    let n = text.line_count(all);
+                    var k = 1;
+                    while k <= n && status == 0 {
+                        let ln = text.line(all, k);
+                        if len(ln) > 0 {
+                            var sp1 = 0;
+                            while sp1 < len(ln) && int_of(ln[sp1]) != 32 {
+                                sp1 = sp1 + 1;
+                            }
+                            var sp2 = sp1 + 1;
+                            while sp2 < len(ln) && int_of(ln[sp2]) != 32 {
+                                sp2 = sp2 + 1;
+                            }
+                            var colon = sp2;
+                            while colon < len(ln) && int_of(ln[colon]) != 58 {
+                                colon = colon + 1;
+                            }
+                            if sp1 >= len(ln) || sp2 >= len(ln) || colon >= len(ln) {
+                                status = 2;
+                            } else {
+                                let seq = text.parse_int(ln[0..sp1]);
+                                let task = text.parse_int(ln[sp1 + 1..sp2]);
+                                let name = bytes.trim(text.line(buffer.bytes(tb), task + 1));
+                                if task + 1 > text.line_count(buffer.bytes(tb)) || len(name) == 0 {
+                                    status = 3;
+                                } else {
+                                    let reward = read_reward(heap, fs, results, seq);
+                                    lines_out = buffer.append(heap, lines_out, "{\"group\":\"");
+                                    lines_out = buffer.append(heap, lines_out, name);
+                                    lines_out = buffer.append(heap, lines_out, "\",\"reward\":");
+                                    borrow reward as &wr in {
+                                        lines_out = buffer.append(heap, lines_out, buffer.bytes(wr));
+                                    }
+                                    lines_out = buffer.append(heap, lines_out, ",\"prompt\":");
+                                    lines_out = prompt_array(heap, lines_out, buffer.bytes(pb), task);
+                                    lines_out = buffer.append(heap, lines_out, ",\"completion\":[");
+                                    var first = true;
+                                    var at = colon + 1;
+                                    while at < len(ln) {
+                                        while at < len(ln) && !bytes.is_digit(int_of(ln[at])) {
+                                            at = at + 1;
+                                        }
+                                        var to = at;
+                                        while to < len(ln) && bytes.is_digit(int_of(ln[to])) {
+                                            to = to + 1;
+                                        }
+                                        if to > at {
+                                            if !first {
+                                                lines_out = buffer.push(heap, lines_out, byte_of(44));
+                                            }
+                                            lines_out = buffer.append(heap, lines_out, ln[at..to]);
+                                            first = false;
+                                        }
+                                        at = to;
+                                    }
+                                    lines_out = buffer.append(heap, lines_out, "]}\n");
+                                    buffer.drop(heap, reward);
+                                    count = count + 1;
+                                }
+                            }
+                        }
+                        k = k + 1;
+                    }
+                }
+            }
+        }
+    }
+    buffer.drop(heap, mf);
+    buffer.drop(heap, pf);
+    buffer.drop(heap, tf);
+    if status == 0 {
+        if write_to(heap, fs, buffer.append(heap, buffer.empty(heap, 64), out), lines_out) > 0 {
+            status = 5;
+        }
+    } else {
+        buffer.drop(heap, lines_out);
+    }
+    return (status, count);
+}
