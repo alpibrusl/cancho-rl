@@ -1,0 +1,45 @@
+{"kind":"eval","step":0,"heldout_tasks":28,"rate":0.254464,"secs":331}
+{"kind":"train","step":1,"tasks":"mod_floor sum_odd_digits count_primes_upto first_digit","rate":0.062500,"kept":24,"grad_norm":0.2679326549986492,"secs":67}
+{"kind":"train","step":2,"tasks":"max4 count_odd_digits ticket_price digit_sum","rate":0.375000,"kept":32,"grad_norm":0.1394099902885157,"secs":62}
+{"kind":"train","step":3,"tasks":"sum_3_or_5 lcm digit_sum_base max4","rate":0.406250,"kept":32,"grad_norm":0.14907416909020482,"secs":122}
+{"kind":"train","step":4,"tasks":"fib_even_sum sum_evens_to sum_range abs_val","rate":0.625000,"kept":32,"grad_norm":0.1861962431829139,"secs":80}
+{"kind":"train","step":5,"tasks":"floor_div quadrant max3 pow_int","rate":0.437500,"kept":32,"grad_norm":0.1837464419357497,"secs":136}
+{"kind":"train","step":6,"tasks":"count_multiples digit_sum sum_3_or_5 digit_sum_base","rate":0.343750,"kept":32,"grad_norm":0.14006761923765274,"secs":66}
+{"kind":"train","step":7,"tasks":"sum_range is_perfect_number gcd shipping_cost","rate":0.531250,"kept":24,"grad_norm":0.2883409578857727,"secs":58}
+{"kind":"train","step":8,"tasks":"sum_evens_to sum_range is_valid_triangle max3","rate":0.687500,"kept":24,"grad_norm":0.27089130615069884,"secs":59}
+{"kind":"train","step":9,"tasks":"digit_sum_base fib_even_sum spread sum_odd_digits","rate":0.312500,"kept":32,"grad_norm":0.19484730321290425,"secs":193}
+{"kind":"train","step":10,"tasks":"sum_3_or_5 sum_cubes_to max3 sum_odd_to","rate":0.468750,"kept":32,"grad_norm":0.1965072493992554,"secs":190}
+{"kind":"eval","step":10,"heldout_tasks":28,"rate":0.401786,"secs":395}
+{"kind":"train","step":11,"tasks":"reverse_number min_digit sum_3_or_5 quadrant","rate":0.375000,"kept":32,"grad_norm":0.20077907680451118,"secs":79}
+{"kind":"train","step":12,"tasks":"steps_to_zero hours_between fib_even_sum is_perfect_number","rate":0.343750,"kept":24,"grad_norm":0.19131851985639303,"secs":121}
+{"kind":"train","step":13,"tasks":"abs_diff first_digit max4 clamp_percent","rate":0.562500,"kept":24,"grad_norm":0.31224020522399165,"secs":68}
+{"kind":"train","step":14,"tasks":"sum_range is_odd count_odd_digits min_digit","rate":0.437500,"kept":24,"grad_norm":0.31203601096694533,"secs":84}
+{"kind":"train","step":15,"tasks":"ticket_price sum_squares_to steps_to_zero decimal_trailing_zeros","rate":0.468750,"kept":24,"grad_norm":0.2420738792268657,"secs":76}
+{"kind":"train","step":16,"tasks":"fib is_prime int_sqrt sum_squares_to","rate":0.093750,"kept":24,"grad_norm":0.2551909746446443,"secs":185}
+{"kind":"train","step":17,"tasks":"sum_3_or_5 max4 lcm fib","rate":0.468750,"kept":16,"grad_norm":0.27539855272713154,"secs":178}
+{"kind":"train","step":18,"tasks":"lcm triangular_index fizzbuzz_code sum_multiples","rate":0.406250,"kept":24,"grad_norm":0.23346295138628703,"secs":66}
+{"kind":"train","step":19,"tasks":"is_prime decimal_trailing_zeros sum_multiples sum_cubes_to","rate":0.406250,"kept":24,"grad_norm":0.2353607909828639,"secs":69}
+{"kind":"train","step":20,"tasks":"bit_length sum_odd_to mod_floor count_multiples","rate":0.218750,"kept":32,"grad_norm":0.32071124682794605,"secs":74}
+{"kind":"eval","step":20,"heldout_tasks":28,"rate":0.446429,"secs":457}
+{"kind":"train","step":21,"tasks":"decimal_trailing_zeros pow_int triangular_index shipping_cost","rate":0.500000,"kept":16,"grad_norm":0.38627482528677765,"secs":60}
+{"kind":"train","step":22,"tasks":"pow_int round_to_ten fib_even_sum bit_length","rate":0.250000,"kept":32,"grad_norm":0.1602719202166181,"secs":143}
+{"kind":"train","step":23,"tasks":"min_digit digit_sum_base abs_diff int_sqrt","rate":0.343750,"kept":24,"grad_norm":0.2271947396334912,"secs":67}
+{"kind":"train","step":24,"tasks":"sum_odd_digits abs_diff abs_val fib_even_sum","rate":0.406250,"kept":24,"grad_norm":0.1695148735903609,"secs":123}
+{"kind":"train","step":25,"tasks":"sum_odd_to decimal_trailing_zeros sum_evens_to quadrant","rate":0.593750,"kept":24,"grad_norm":0.18860518295776665,"secs":66}
+{"kind":"train","step":26,"tasks":"steps_to_zero lcm triangular_index first_digit","rate":0.437500,"kept":32,"grad_norm":0.14484924335986887,"secs":83}
+{"kind":"train","step":27,"tasks":"bit_length sum_evens_to reverse_number gcd","rate":0.531250,"kept":24,"grad_norm":0.18941751476762617,"secs":65}
+{"kind":"train","step":28,"tasks":"decimal_trailing_zeros floor_div quadrant max4","rate":0.531250,"kept":16,"grad_norm":0.19651230331457234,"secs":55}
+{"kind":"train","step":29,"tasks":"sum_squares_to hours_between decimal_trailing_zeros abs_val","rate":0.250000,"kept":32,"grad_norm":0.15356387842219543,"secs":73}
+{"kind":"train","step":30,"tasks":"fib sum_3_or_5 sum_evens_to pow_int","rate":0.593750,"kept":16,"grad_norm":0.18188570665673406,"secs":175}
+{"kind":"eval","step":30,"heldout_tasks":28,"rate":0.468750,"secs":439}
+{"kind":"train","step":31,"tasks":"sum_odd_digits spread hours_between digit_sum","rate":0.500000,"kept":24,"grad_norm":0.15977283371021012,"secs":63}
+{"kind":"train","step":32,"tasks":"sum_odd_to gcd abs_diff shipping_cost","rate":0.718750,"kept":32,"grad_norm":0.20243091458905677,"secs":72}
+{"kind":"train","step":33,"tasks":"max3 mod_floor quadrant steps_to_zero","rate":0.750000,"kept":0,"grad_norm":0,"secs":41}
+{"kind":"train","step":34,"tasks":"is_valid_triangle min_digit count_primes_upto count_multiples","rate":0.593750,"kept":8,"grad_norm":0.24141478037044684,"secs":49}
+{"kind":"train","step":35,"tasks":"decimal_trailing_zeros bit_length ticket_price sum_odd_to","rate":0.531250,"kept":16,"grad_norm":0.32275593417693316,"secs":57}
+{"kind":"train","step":36,"tasks":"clamp_percent count_primes_upto digit_sum quadrant","rate":0.687500,"kept":16,"grad_norm":0.24591791430860094,"secs":55}
+{"kind":"train","step":37,"tasks":"quadrant shipping_cost bit_length is_perfect_number","rate":0.656250,"kept":16,"grad_norm":0.29001763077313636,"secs":60}
+{"kind":"train","step":38,"tasks":"int_sqrt sum_squares_to round_to_ten clamp_percent","rate":0.437500,"kept":24,"grad_norm":0.3091015301436173,"secs":66}
+{"kind":"train","step":39,"tasks":"shipping_cost steps_to_zero first_digit fizzbuzz_code","rate":0.750000,"kept":8,"grad_norm":0.8756871709101756,"secs":54}
+{"kind":"train","step":40,"tasks":"sum_cubes_to max4 sum_squares_to decimal_trailing_zeros","rate":0.500000,"kept":16,"grad_norm":0.0,"secs":58}
+{"kind":"eval","step":40,"heldout_tasks":28,"rate":0.464286,"secs":357}

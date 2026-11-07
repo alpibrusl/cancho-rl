@@ -1,0 +1,147 @@
+edition 9;
+
+module rl.session;
+
+// A running program spoken to one line at a time (docs/design.md section 46): the Metal session of cancho-gpu reads a request line on its standard input and answers one line on its standard
+// output, and a training update is K requests with a host step (`qsw split`) between them, so it cannot be a one-shot `capture`. `start` spawns the program with both channels piped
+// (the child's standard error is dropped), `ask` writes a line and reads the reply line, `finish` closes the channels and waits for the exit code.
+
+import std.buffer;
+import std.bytes;
+import std.process;
+
+pub res struct Session {
+    to: Pipe,
+    from: Pipe,
+    child: Child,
+    held: buffer.Buffer,
+}
+
+pub enum Started {
+    Ok(Session),
+    Failed(int),
+}
+
+// Spawn `path` with `args` (a `\0`-ended list) and `env` (the same). Answers the session, or the errno of the spawn.
+pub fn start[&h, &x, &p, &a, &v](heap: &!h Heap, exec: &x Exec(""), path: &p [byte], args: &a [byte], env: &v [byte]) -> [heap, exec("")] Started {
+    match process.channels() {
+        process.Channels::Failed(e) => {
+            return Started::Failed(e);
+        }
+        process.Channels::Ok(to_child, child_in, from_child, child_out) => {
+            match exec_spawn(exec, path, args, env, Stdio::Pipe(child_in), Stdio::Pipe(child_out), Stdio::Null) {
+                Spawned::Failed(e) => {
+                    process.close(to_child, from_child);
+                    return Started::Failed(e);
+                }
+                Spawned::Ok(child) => {
+                    return Started::Ok(Session { to: to_child, from: from_child, child: child, held: buffer.empty(heap, 256) });
+                }
+            }
+        }
+    }
+}
+
+// The position of the first newline of `b`, or -1.
+fn newline[&t](b: &t [byte]) -> [] int {
+    var i = 0;
+    while i < len(b) {
+        if int_of(b[i]) == 10 {
+            return i;
+        }
+        i = i + 1;
+    }
+    return 0 - 1;
+}
+
+// Send `request` and a newline, then read one line of the reply (without its newline). Answers (session, reply, status): 0 ok; 1 the child stopped reading; 2 it closed its output before a
+// whole line came (the reply is what arrived).
+pub fn ask[&h, &r](heap: &!h Heap, s: Session, request: &r [byte]) -> [heap, pipe_write, pipe_read] (Session, buffer.Buffer, int) {
+    let Session { to, from, child, held } = s;
+    var tw = to;
+    var fr = from;
+    var status = 0;
+    var line = buffer.append(heap, buffer.empty(heap, len(request) + 2), request);
+    line = buffer.push(heap, line, byte_of(10));
+    borrow line as &lb in {
+        let bytes_out = buffer.bytes(lb);
+        var written = 0;
+        borrow mut tw as &!w in {
+            while written < len(bytes_out) && status == 0 {
+                match pipe_write(w, bytes_out[written..len(bytes_out)]) {
+                    Sent::Wrote(m) => {
+                        written = written + m;
+                    }
+                    Sent::Again => {
+                    }
+                    Sent::Failed(e) => {
+                        status = 1;
+                    }
+                }
+            }
+        }
+    }
+    buffer.drop(heap, line);
+    var carry = held;
+    var reply = buffer.empty(heap, 256);
+    if status == 0 {
+        let slab = box_slice(heap, 65536, byte_of(0));
+        var done = false;
+        while !done {
+            var at = 0 - 1;
+            borrow carry as &cb in {
+                at = newline(buffer.bytes(cb));
+            }
+            if at >= 0 {
+                var rest = buffer.empty(heap, 256);
+                borrow carry as &cb in {
+                    reply = buffer.append(heap, reply, buffer.bytes(cb)[0..at]);
+                    rest = buffer.append(heap, rest, buffer.bytes(cb)[at + 1..len(buffer.bytes(cb))]);
+                }
+                buffer.drop(heap, carry);
+                carry = rest;
+                done = true;
+            } else {
+                borrow mut slab as &!sw in {
+                    borrow mut fr as &!rd in {
+                        match pipe_read(rd, contents(sw)) {
+                            Received::Data(n) => {
+                                carry = buffer.append(heap, carry, contents(sw)[0..n]);
+                            }
+                            Received::Again => {
+                            }
+                            Received::End => {
+                                status = 2;
+                                done = true;
+                            }
+                            Received::Failed(e) => {
+                                status = 2;
+                                done = true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        unbox_slice(heap, slab);
+    }
+    return (Session { to: tw, from: fr, child: child, held: carry }, reply, status);
+}
+
+// Close both channels, wait for the child and answer its exit code (256 + the signal when it was killed, -1 when the wait failed).
+pub fn finish[&h](heap: &!h Heap, s: Session) -> [heap] int {
+    let Session { to, from, child, held } = s;
+    buffer.drop(heap, held);
+    process.close(to, from);
+    match child_wait(child) {
+        Exited::Code(n) => {
+            return n;
+        }
+        Exited::Signaled(g) => {
+            return 256 + g;
+        }
+        Exited::Failed(e) => {
+            return 0 - 1;
+        }
+    }
+}

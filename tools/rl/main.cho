@@ -18,6 +18,7 @@ import rl.pack;
 import rl.report;
 import rl.rollin;
 import rl.rollout;
+import rl.session;
 import rl.side;
 import rl.text;
 import std.buffer;
@@ -690,6 +691,46 @@ fn adamw_command[&h, &i, &g, &f](heap: &!h Heap, io: &!i Io, args: &g Args, fs: 
     return status;
 }
 
+// rl ask SHELLCOMMAND LINE...: runs `sh -c SHELLCOMMAND` as a session (lib/rl/session.cho, docs/design.md section 46), sends each LINE and prints the reply line to each; the test of the session helper.
+fn ask_command[&h, &i, &g, &x](heap: &!h Heap, io: &!i Io, args: &g Args, exec: &x Exec("")) -> [heap, io_write, err_write, args, exec(""), pipe_write, pipe_read] int {
+    if arg_count(args) < 4 {
+        return refuse(heap, io, "rl.usage", "rl ask SHELLCOMMAND LINE...");
+    }
+    var cmd = buffer.append(heap, buffer.empty(heap, 64), "-c\0");
+    cmd = buffer.append(heap, cmd, arg(args, 2));
+    cmd = buffer.push(heap, cmd, byte_of(0));
+    var status = 0;
+    borrow cmd as &cb in {
+        match session.start(heap, exec, "/bin/sh", buffer.bytes(cb), "PATH=/usr/bin:/bin\0") {
+            session.Started::Failed(e) => {
+                status = refuse(heap, io, "rl.ask.spawn", "the program cannot be started");
+            }
+            session.Started::Ok(first) => {
+                var s = first;
+                var k = 3;
+                while k < arg_count(args) && status == 0 {
+                    let (next, reply, st) = session.ask(heap, s, arg(args, k));
+                    s = next;
+                    if st != 0 {
+                        status = refuse(heap, io, "rl.ask.session", "the program stopped answering");
+                        buffer.drop(heap, reply);
+                    } else {
+                        let line = buffer.push(heap, reply, byte_of(10));
+                        borrow line as &lr in {
+                            buffer.write(io, lr);
+                        }
+                        buffer.drop(heap, line);
+                        k = k + 1;
+                    }
+                }
+                session.finish(heap, s);
+            }
+        }
+    }
+    buffer.drop(heap, cmd);
+    return status;
+}
+
 fn main(world: World) -> [] int {
     let Split { io, ffi, fs, heap, args, net, clock, signals, exec, tty } = split(world);
     release(ffi);
@@ -727,8 +768,10 @@ fn main(world: World) -> [] int {
                                 status = extract_command(h, i, g, f);
                             } else if arg_count(g) >= 2 && bytes.equal(arg(g, 1), "samples") {
                                 status = samples_command(h, i, g, f);
+                            } else if arg_count(g) >= 2 && bytes.equal(arg(g, 1), "ask") {
+                                status = ask_command(h, i, g, x);
                             } else {
-                                status = refuse(h, i, "rl.usage", "the commands are `rl grade`, `rl split`, `rl prompt`, `rl chat`, `rl report`, `rl tasks`, `rl pack`, `rl adamw`, `rl rollin`, `rl complete`, `rl extract` and `rl samples`");
+                                status = refuse(h, i, "rl.usage", "the commands are `rl grade`, `rl split`, `rl prompt`, `rl chat`, `rl report`, `rl tasks`, `rl pack`, `rl adamw`, `rl rollin`, `rl complete`, `rl extract`, `rl samples` and `rl ask`");
                             }
                         }
                     }

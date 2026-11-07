@@ -5,7 +5,7 @@ set -u
 cd "$(dirname "$0")/.." || exit 1
 C="${CANCHO:-cancho}"
 mkdir -p build work
-"$C" build lib/rl/text.cho lib/rl/side.cho lib/rl/grade.cho lib/rl/report.cho lib/rl/adv.cho lib/rl/adamw.cho lib/rl/pack.cho lib/rl/rollin.cho lib/rl/rollout.cho tools/rl/main.cho --std -o build/rl 2>&1 | grep -v "ld: warning" ; [ -x build/rl ] || { echo "FAIL build"; exit 1; }
+"$C" build lib/rl/text.cho lib/rl/side.cho lib/rl/grade.cho lib/rl/report.cho lib/rl/adv.cho lib/rl/adamw.cho lib/rl/pack.cho lib/rl/rollin.cho lib/rl/rollout.cho lib/rl/session.cho tools/rl/main.cho --std -o build/rl 2>&1 | grep -v "ld: warning" ; [ -x build/rl ] || { echo "FAIL build"; exit 1; }
 fail=0
 for t in $(ls tasks); do
     out=$(./build/rl grade "$C" "tasks/$t" "tasks/$t/reference.cho" "work/$t.cho")
@@ -90,6 +90,13 @@ if [ -n "${CANCHO_GPU:-}" ] && [ -n "${QWEN_TOKENIZER:-}" ] && python3 -c 'impor
 else
     echo "skip chat_check, rollin_check, rollout_check: set CANCHO_GPU and QWEN_TOKENIZER (and have transformers) to run them"
 fi
+# `rl ask` (lib/rl/session.cho, docs/design.md section 46): a program spoken to one line at a time
+a=$(./build/rl ask 'while read l; do echo "got:$l"; done' 1 checkpoint 400 | tr '\n' ' ')
+[ "$a" = "got:1 got:checkpoint got:400 " ] || { echo "FAIL ask replies: $a"; fail=1; }
+[ "$(./build/rl ask 'python3 -c "import sys
+for l in sys.stdin: print(l.strip()*30000, flush=True)"' x yy | wc -c | tr -d ' ')" = 90002 ] || { echo "FAIL ask long replies"; fail=1; }
+./build/rl ask 'read l; echo once' a b 2>&1 | grep -q '"rl.ask.session"' || { echo "FAIL ask refusal rl.ask.session"; fail=1; }
+./build/rl ask 2>&1 | grep -q '"rl.usage"' || { echo "FAIL ask refusal rl.usage"; fail=1; }
 python3 scripts/crosscheck.py "$C" > work/crosscheck.txt 2>&1 || { echo "FAIL crosscheck"; grep DISAGREE work/crosscheck.txt; fail=1; }
 [ $fail = 0 ] && echo "gate: ok"
 exit $fail
