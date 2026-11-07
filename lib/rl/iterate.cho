@@ -33,7 +33,7 @@ pub fn setting[&c, &k](cfg: &c [byte], key: &k [byte]) -> [] &c [byte] {
     return cfg[0..0];
 }
 
-fn setting_int[&c, &k](cfg: &c [byte], key: &k [byte], fallback: int) -> [] int {
+pub fn setting_int[&c, &k](cfg: &c [byte], key: &k [byte], fallback: int) -> [] int {
     let v = setting(cfg, key);
     if len(v) == 0 {
         return fallback;
@@ -153,15 +153,17 @@ fn go[&h, &x, &f, &d, &t](heap: &!h Heap, exec: &x Exec(""), fs: &f Fs(""), dir:
 }
 
 // A time line, `name  secs`, to the log and to the standard error.
-fn lap[&h, &i](heap: &!h Heap, io: &!i Io, log: buffer.Buffer, name: &static [byte], t0: int, t1: int) -> [heap, err_write] buffer.Buffer {
+fn lap[&h, &i](heap: &!h Heap, io: &!i Io, loud: bool, log: buffer.Buffer, name: &static [byte], t0: int, t1: int) -> [heap, err_write] buffer.Buffer {
     var line = buffer.append(heap, buffer.empty(heap, 48), name);
     line = buffer.append(heap, line, "  ");
     line = buffer.push_nat(heap, line, (t1 - t0) / 1000);
     line = buffer.push(heap, line, byte_of(46));
     line = buffer.push_nat(heap, line, (t1 - t0) % 1000 / 100);
     line = buffer.append(heap, line, " s\n");
-    borrow line as &lr in {
-        io.error_all(io, buffer.bytes(lr));
+    if loud {
+        borrow line as &lr in {
+            io.error_all(io, buffer.bytes(lr));
+        }
     }
     var out = buffer.append(heap, log, "");
     borrow line as &lr in {
@@ -416,7 +418,7 @@ pub fn run[&h, &i, &f, &x, &c, &c2, &o, &a](heap: &!h Heap, io: &!i Io, fs: &f F
         return fail(io, "tokenize");
     }
     var t1 = clock_ms(clock);
-    log = lap(heap, io, log, "tokenize", t0, t1);
+    log = lap(heap, io, setting_int(cfg, "quiet", 0) == 0, log, "tokenize", t0, t1);
     t0 = t1;
 
     // the rollout's inputs
@@ -437,7 +439,7 @@ pub fn run[&h, &i, &f, &x, &c, &c2, &o, &a](heap: &!h Heap, io: &!i Io, fs: &f F
         return fail(io, "rollin");
     }
     t1 = clock_ms(clock);
-    log = lap(heap, io, log, "rollin", t0, t1);
+    log = lap(heap, io, setting_int(cfg, "quiet", 0) == 0, log, "rollin", t0, t1);
     t0 = t1;
 
     // 2. prefill: the training forward over the distinct prompts, with the adapters, saving the caches
@@ -478,7 +480,7 @@ pub fn run[&h, &i, &f, &x, &c, &c2, &o, &a](heap: &!h Heap, io: &!i Io, fs: &f F
         return fail(io, "prefill session");
     }
     t1 = clock_ms(clock);
-    log = lap(heap, io, log, "prefill", t0, t1);
+    log = lap(heap, io, setting_int(cfg, "quiet", 0) == 0, log, "prefill", t0, t1);
     t0 = t1;
 
     // 3. decode, from those caches and those adapters
@@ -530,7 +532,7 @@ pub fn run[&h, &i, &f, &x, &c, &c2, &o, &a](heap: &!h Heap, io: &!i Io, fs: &f F
         return fail(io, "decode session");
     }
     t1 = clock_ms(clock);
-    log = lap(heap, io, log, "decode", t0, t1);
+    log = lap(heap, io, setting_int(cfg, "quiet", 0) == 0, log, "decode", t0, t1);
     t0 = t1;
 
     // 4. completions, text, programs, rewards, samples
@@ -580,7 +582,7 @@ pub fn run[&h, &i, &f, &x, &c, &c2, &o, &a](heap: &!h Heap, io: &!i Io, fs: &f F
         return fail(io, "extract");
     }
     t1 = clock_ms(clock);
-    log = lap(heap, io, log, "complete", t0, t1);
+    log = lap(heap, io, setting_int(cfg, "quiet", 0) == 0, log, "complete", t0, t1);
     t0 = t1;
     var gstatus = 0;
     borrow names as &nm in {
@@ -601,7 +603,7 @@ pub fn run[&h, &i, &f, &x, &c, &c2, &o, &a](heap: &!h Heap, io: &!i Io, fs: &f F
         return fail(io, "grade");
     }
     t1 = clock_ms(clock);
-    log = lap(heap, io, log, "grade", t0, t1);
+    log = lap(heap, io, setting_int(cfg, "quiet", 0) == 0, log, "grade", t0, t1);
     t0 = t1;
     let meta_path = path_in(heap, out, "c.meta");
     let tasks_path = path_in(heap, out, "tasks.txt");
@@ -631,7 +633,7 @@ pub fn run[&h, &i, &f, &x, &c, &c2, &o, &a](heap: &!h Heap, io: &!i Io, fs: &f F
         return fail(io, "samples");
     }
     t1 = clock_ms(clock);
-    log = lap(heap, io, log, "samples", t0, t1);
+    log = lap(heap, io, setting_int(cfg, "quiet", 0) == 0, log, "samples", t0, t1);
     t0 = t1;
     if setting_int(cfg, "eval", 0) == 1 {
         buffer.drop(heap, samples_path);
@@ -666,7 +668,7 @@ pub fn run[&h, &i, &f, &x, &c, &c2, &o, &a](heap: &!h Heap, io: &!i Io, fs: &f F
         return fail(io, "pack");
     }
     t1 = clock_ms(clock);
-    log = lap(heap, io, log, "pack", t0, t1);
+    log = lap(heap, io, setting_int(cfg, "quiet", 0) == 0, log, "pack", t0, t1);
     t0 = t1;
     var summary = buffer.append(heap, buffer.empty(heap, 128), "{\"samples\":");
     summary = buffer.push_nat(heap, summary, total);
@@ -678,7 +680,12 @@ pub fn run[&h, &i, &f, &x, &c, &c2, &o, &a](heap: &!h Heap, io: &!i Io, fs: &f F
     summary = buffer.push_nat(heap, summary, ntok);
     summary = buffer.append(heap, summary, "}\n");
     borrow summary as &sm in {
-        buffer.write(io, sm);
+        if write_file(heap, fs, out, "pack.json", buffer.bytes(sm)) < 0 {
+            status = 1;
+        }
+        if setting_int(cfg, "quiet", 0) == 0 {
+            buffer.write(io, sm);
+        }
     }
     buffer.drop(heap, summary);
     if kept == 0 {
@@ -774,7 +781,7 @@ fn update[&h, &i, &f, &x, &c, &c2, &o, &a](heap: &!h Heap, io: &!i Io, fs: &f Fs
         return fail(io, "training session");
     }
     var t1 = clock_ms(clock);
-    lg = lap(heap, io, lg, "train", t0, t1);
+    lg = lap(heap, io, setting_int(cfg, "quiet", 0) == 0, lg, "train", t0, t1);
     t0 = t1;
 
     // AdamW over the summed gradients
@@ -824,11 +831,11 @@ fn update[&h, &i, &f, &x, &c, &c2, &o, &a](heap: &!h Heap, io: &!i Io, fs: &f Fs
         return fail(io, "adamw");
     }
     t1 = clock_ms(clock);
-    lg = lap(heap, io, lg, "adamw", t0, t1);
+    lg = lap(heap, io, setting_int(cfg, "quiet", 0) == 0, lg, "adamw", t0, t1);
     let ao_path = path_in(heap, out, "adamw.out");
     borrow ao_path as &ap in {
         let (ao, af) = text.read_file(heap, fs, buffer.bytes(ap));
-        if af == 0 {
+        if af == 0 && setting_int(cfg, "quiet", 0) == 0 {
             borrow ao as &ab in {
                 buffer.write(io, ab);
             }

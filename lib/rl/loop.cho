@@ -1,0 +1,619 @@
+edition 9;
+
+module rl.loop;
+
+// R4's loop in cancho (docs/design.md sections 44 and 48): ITERS iterations of `rl iterate` from the starting adapters, the moments carried over, with a held-out evaluation before the first and every
+// EVERY (and after the last). R1's protocol: 4 training tasks an iteration drawn from a pool, 8 samples each; the evaluation is every held-out task, 8 samples each, 4 tasks to a batch (the prefill saves
+// 8 copies of a prompt's caches), the rate the mean over tasks of the fraction solved.
+
+import std.buffer;
+import std.bytes;
+import std.io;
+import std.process;
+import rl.iterate;
+import rl.side;
+import rl.text;
+
+// The `n`th (1-based) word of `t`: a run of bytes above a space. Empty when there is none.
+fn word[&t](t: &t [byte], n: int) -> [] &t [byte] {
+    var at = 0;
+    var seen = 0;
+    while at < len(t) {
+        while at < len(t) && int_of(t[at]) <= 32 {
+            at = at + 1;
+        }
+        var to = at;
+        while to < len(t) && int_of(t[to]) > 32 {
+            to = to + 1;
+        }
+        if to > at {
+            seen = seen + 1;
+            if seen == n {
+                return t[at..to];
+            }
+        }
+        at = to;
+    }
+    return t[0..0];
+}
+
+fn word_count[&t](t: &t [byte]) -> [] int {
+    var n = 0;
+    while len(word(t, n + 1)) > 0 {
+        n = n + 1;
+    }
+    return n;
+}
+
+// The random numbers of a training draw: a linear congruential generator, its high bits. (The shell loop drew with awk's `rand`, which cannot be reproduced here: the tasks of an iteration differ
+// from that loop's, the distribution does not.)
+fn next[](x: int) -> [] int {
+    return (x * 1103515245 + 12345) % 2147483648;
+}
+
+// `x` with six decimals, rounded: 0.254 is `0.254000`.
+fn fixed6[&h](heap: &!h Heap, b: buffer.Buffer, x: float) -> [heap] buffer.Buffer {
+    let n = truncate(x * 1000000.0 + 0.5);
+    var out = buffer.push_nat(heap, b, n / 1000000);
+    out = buffer.push(heap, out, byte_of(46));
+    let frac = n % 1000000;
+    var pad = 100000;
+    while pad > frac && pad > 1 {
+        out = buffer.push(heap, out, byte_of(48));
+        pad = pad / 10;
+    }
+    return buffer.push_nat(heap, out, frac);
+}
+
+fn tool[&x, &p, &l](exec: &x Exec(""), program: &p [byte], list: &l [byte]) -> [exec("")] int {
+    match exec_spawn(exec, program, list, "PATH=/usr/bin:/bin\0", Stdio::Null, Stdio::Null, Stdio::Null) {
+        Spawned::Failed(e) => {
+            return 0 - 1;
+        }
+        Spawned::Ok(child) => {
+            match child_wait(child) {
+                Exited::Code(n) => {
+                    return n;
+                }
+                Exited::Signaled(g) => {
+                    return 256 + g;
+                }
+                Exited::Failed(e) => {
+                    return 0 - 1;
+                }
+            }
+        }
+    }
+}
+
+// `dir` and the directories an iteration keeps its stages in.
+fn make_dirs[&h, &x, &d](heap: &!h Heap, exec: &x Exec(""), dir: &d [byte]) -> [heap, exec("")] int {
+    var list = buffer.append(heap, buffer.empty(heap, 256), "-p\0");
+    var k = 0;
+    while k < 6 {
+        list = buffer.append(heap, list, dir);
+        list = buffer.push(heap, list, byte_of(47));
+        if k == 0 {
+            list = buffer.append(heap, list, "kv");
+        } else if k == 1 {
+            list = buffer.append(heap, list, "pre");
+        } else if k == 2 {
+            list = buffer.append(heap, list, "dec");
+        } else if k == 3 {
+            list = buffer.append(heap, list, "cand");
+        } else if k == 4 {
+            list = buffer.append(heap, list, "train");
+        } else {
+            list = buffer.append(heap, list, "work");
+        }
+        list = buffer.push(heap, list, byte_of(0));
+        k = k + 1;
+    }
+    var code = 0 - 1;
+    borrow list as &lb in {
+        code = tool(exec, "/bin/mkdir", buffer.bytes(lb));
+    }
+    buffer.drop(heap, list);
+    return code;
+}
+
+// The stage directories of `dir` taken away (what an iteration leaves is its data files), or, with `all`, `dir` itself.
+fn clean[&h, &x, &f, &d](heap: &!h Heap, exec: &x Exec(""), fs: &f Fs(""), dir: &d [byte], all: bool, batches: int) -> [heap, exec(""), fs_write("")] int {
+    var list = buffer.append(heap, buffer.empty(heap, 256), "-rf\0");
+    if all {
+        list = buffer.append(heap, list, dir);
+        list = buffer.push(heap, list, byte_of(0));
+    } else {
+        var k = 0;
+        while k < 5 {
+            list = buffer.append(heap, list, dir);
+            list = buffer.push(heap, list, byte_of(47));
+            if k == 0 {
+                list = buffer.append(heap, list, "kv");
+            } else if k == 1 {
+                list = buffer.append(heap, list, "pre");
+            } else if k == 2 {
+                list = buffer.append(heap, list, "dec");
+            } else if k == 3 {
+                list = buffer.append(heap, list, "train");
+            } else {
+                list = buffer.append(heap, list, "work");
+            }
+            list = buffer.push(heap, list, byte_of(0));
+            k = k + 1;
+        }
+        list = buffer.append(heap, list, dir);
+        list = buffer.append(heap, list, "/cand\0");
+    }
+    var code = 0 - 1;
+    borrow list as &lb in {
+        code = tool(exec, "/bin/rm", buffer.bytes(lb));
+    }
+    buffer.drop(heap, list);
+    if !all {
+        var k = 0;
+        while k < batches {
+            var p = buffer.append(heap, buffer.empty(heap, 64), dir);
+            p = buffer.append(heap, p, "/g");
+            p = buffer.push_nat(heap, p, k);
+            p = buffer.append(heap, p, ".f64");
+            borrow p as &pb in {
+                fs_remove(fs, buffer.bytes(pb));
+            }
+            buffer.drop(heap, p);
+            k = k + 1;
+        }
+    }
+    return code;
+}
+
+// What the results of the samples in `dir` say: (status, the sum over its tasks of the fraction solved, the number of tasks). `res.k.json` is the result of sample k; sample k is of task k / group.
+fn solved_sum[&h, &f, &d](heap: &!h Heap, fs: &f Fs(""), dir: &d [byte], group: int) -> [heap, fs_read(""), file_read] (int, float, int) {
+    var tasks_path = buffer.append(heap, buffer.empty(heap, 64), dir);
+    tasks_path = buffer.append(heap, tasks_path, "/tasks.txt");
+    var ntasks = 0;
+    var failed = 0;
+    borrow tasks_path as &tp in {
+        let (names, nf) = text.read_file(heap, fs, buffer.bytes(tp));
+        if nf != 0 {
+            failed = 1;
+        } else {
+            borrow names as &nb in {
+                ntasks = word_count(buffer.bytes(nb));
+            }
+        }
+        buffer.drop(heap, names);
+    }
+    buffer.drop(heap, tasks_path);
+    var total = 0.0;
+    var t = 0;
+    while t < ntasks && failed == 0 {
+        var solved = 0;
+        var s = 0;
+        while s < group && failed == 0 {
+            var p = buffer.append(heap, buffer.empty(heap, 64), dir);
+            p = buffer.append(heap, p, "/res.");
+            p = buffer.push_nat(heap, p, t * group + s);
+            p = buffer.append(heap, p, ".json");
+            borrow p as &pb in {
+                let (answer_text, rf) = text.read_file(heap, fs, buffer.bytes(pb));
+                if rf != 0 {
+                    failed = 1;
+                } else {
+                    borrow answer_text as &rb in {
+                        if bytes.find(buffer.bytes(rb), "\"solved\":true") >= 0 {
+                            solved = solved + 1;
+                        }
+                    }
+                }
+                buffer.drop(heap, answer_text);
+            }
+            buffer.drop(heap, p);
+            s = s + 1;
+        }
+        total = total + float_of(solved) / float_of(group);
+        t = t + 1;
+    }
+    return (failed, total, ntasks);
+}
+
+// The text of a settings file that puts `lines` ahead of `base`: the first line of a key wins.
+fn with_overrides[&h, &l, &b](heap: &!h Heap, lines: &l [byte], base: &b [byte]) -> [heap] buffer.Buffer {
+    return buffer.append(heap, buffer.append(heap, buffer.empty(heap, len(lines) + len(base) + 8), lines), base);
+}
+
+// One iteration or evaluation batch in `dir` (made here): `overrides` are settings lines. 0, or 1.
+fn once[&h, &i, &f, &x, &c, &c2, &d, &o, &a](heap: &!h Heap, io: &!i Io, fs: &f Fs(""), exec: &x Exec(""), clock: &c Clock, cfg: &c2 [byte], dir: &d [byte], overrides: &o [byte], adapters: &a [byte]) -> [heap, err_write, io_write, fs_read(""), fs_write(""), file_read, exec(""), clock, pipe_write, pipe_read] int {
+    if make_dirs(heap, exec, dir) != 0 {
+        return 1;
+    }
+    let merged = with_overrides(heap, overrides, cfg);
+    var status = 1;
+    borrow merged as &mb in {
+        status = iterate.run(heap, io, fs, exec, clock, buffer.bytes(mb), dir, adapters);
+    }
+    buffer.drop(heap, merged);
+    return status;
+}
+
+// The held-out rate of `adapters` at `step`: every held-out task of `held` (names), 4 to a batch, 8 samples each. Answers (status, the log line).
+fn evaluate[&h, &i, &f, &x, &c, &c2, &o, &a, &w](heap: &!h Heap, io: &!i Io, fs: &f Fs(""), exec: &x Exec(""), clock: &c Clock, cfg: &c2 [byte], out: &o [byte], adapters: &a [byte], held: &w [byte], step: int) -> [heap, err_write, io_write, fs_read(""), fs_write(""), file_read, exec(""), clock, pipe_write, pipe_read] (int, buffer.Buffer) {
+    let t0 = clock_ms(clock);
+    let nheld = word_count(held);
+    let group = 8;
+    var sum = 0.0;
+    var count = 0;
+    var status = 0;
+    var b = 0;
+    while b * 4 < nheld && status == 0 {
+        var dir = buffer.append(heap, buffer.empty(heap, 64), out);
+        dir = buffer.append(heap, dir, "/e");
+        dir = buffer.push_nat(heap, dir, step);
+        dir = buffer.push(heap, dir, byte_of(95));
+        dir = buffer.push_nat(heap, dir, b);
+        var ov = buffer.append(heap, buffer.empty(heap, 128), "tasks");
+        var j = 0;
+        while j < 4 && b * 4 + j < nheld {
+            ov = buffer.push(heap, ov, byte_of(32));
+            ov = buffer.append(heap, ov, word(held, b * 4 + j + 1));
+            j = j + 1;
+        }
+        ov = buffer.append(heap, ov, "\ngroup 8\neval 1\nquiet 1\nseed ");
+        ov = buffer.push_nat(heap, ov, 1000 + step * 10 + b);
+        ov = buffer.push(heap, ov, byte_of(10));
+        borrow dir as &db in {
+            borrow ov as &ob in {
+                if once(heap, io, fs, exec, clock, cfg, buffer.bytes(db), buffer.bytes(ob), adapters) != 0 {
+                    status = 1;
+                } else {
+                    let (st, part, n) = solved_sum(heap, fs, buffer.bytes(db), group);
+                    if st != 0 {
+                        status = 1;
+                    }
+                    sum = sum + part;
+                    count = count + n;
+                }
+                clean(heap, exec, fs, buffer.bytes(db), true, 0);
+            }
+        }
+        buffer.drop(heap, dir);
+        buffer.drop(heap, ov);
+        b = b + 1;
+    }
+    var line = buffer.append(heap, buffer.empty(heap, 128), "{\"kind\":\"eval\",\"step\":");
+    line = buffer.push_nat(heap, line, step);
+    line = buffer.append(heap, line, ",\"heldout_tasks\":");
+    line = buffer.push_nat(heap, line, count);
+    line = buffer.append(heap, line, ",\"rate\":");
+    var rate = 0.0;
+    if count > 0 {
+        rate = sum / float_of(count);
+    }
+    line = fixed6(heap, line, rate);
+    line = buffer.append(heap, line, ",\"secs\":");
+    line = buffer.push_nat(heap, line, (clock_ms(clock) - t0) / 1000);
+    line = buffer.append(heap, line, "}\n");
+    return (status, line);
+}
+
+// A line of the loop's log: to standard output and to the end of `all`, which is written to OUT/log.jsonl.
+fn record[&h, &i, &f, &o](heap: &!h Heap, io: &!i Io, fs: &f Fs(""), out: &o [byte], all: buffer.Buffer, line: buffer.Buffer) -> [heap, io_write, fs_write("")] buffer.Buffer {
+    var grown = all;
+    borrow line as &lb in {
+        buffer.write(io, lb);
+        grown = buffer.append(heap, grown, buffer.bytes(lb));
+    }
+    buffer.drop(heap, line);
+    borrow grown as &gb in {
+        write_file_at(heap, fs, out, buffer.bytes(gb));
+    }
+    return grown;
+}
+
+fn write_file_at[&h, &f, &o, &c](heap: &!h Heap, fs: &f Fs(""), out: &o [byte], content: &c [byte]) -> [heap, fs_write("")] int {
+    var p = buffer.append(heap, buffer.empty(heap, 64), out);
+    p = buffer.append(heap, p, "/log.jsonl");
+    var wrote = 0 - 1;
+    borrow p as &pb in {
+        wrote = fs_write(fs, buffer.bytes(pb), content);
+    }
+    buffer.drop(heap, p);
+    return wrote;
+}
+
+// The text after `key` up to the next `,` or `}`.
+fn json_value[&t](t: &t [byte], key: &static [byte]) -> [] &t [byte] {
+    let at = bytes.find(t, key);
+    if at < 0 {
+        return t[0..0];
+    }
+    var from = at + len(key);
+    var to = from;
+    while to < len(t) && int_of(t[to]) != 44 && int_of(t[to]) != 125 && int_of(t[to]) > 32 {
+        to = to + 1;
+    }
+    return t[from..to];
+}
+
+// `rl loop` (settings: those of `rl iterate`, and iters every loop_seed pool list; `quiet` is forced). OUT must exist. Exit 0, or 1 when an iteration or an evaluation failed.
+pub fn run[&h, &i, &f, &x, &c, &c2, &o, &a](heap: &!h Heap, io: &!i Io, fs: &f Fs(""), exec: &x Exec(""), clock: &c Clock, cfg: &c2 [byte], out: &o [byte], adapters0: &a [byte]) -> [heap, err_write, io_write, fs_read(""), fs_write(""), file_read, exec(""), clock, pipe_write, pipe_read] int {
+    let iters = iterate.setting_int(cfg, "iters", 40);
+    let every = iterate.setting_int(cfg, "every", 10);
+    let seed = iterate.setting_int(cfg, "loop_seed", 1);
+    let pool_name = iterate.setting(cfg, "pool");
+    let list_name = iterate.setting(cfg, "list");
+    var pool_path = buffer.append(heap, buffer.empty(heap, 32), pool_name);
+    if len(pool_name) == 0 {
+        pool_path = buffer.append(heap, pool_path, "work/r1_pool.txt");
+    }
+    var list_path = buffer.append(heap, buffer.empty(heap, 32), list_name);
+    if len(list_name) == 0 {
+        list_path = buffer.append(heap, list_path, "tasks.list");
+    }
+    var pool = buffer.empty(heap, 8);
+    var listing = buffer.empty(heap, 8);
+    var failed = 0;
+    borrow pool_path as &pp in {
+        buffer.drop(heap, pool);
+        let (pb, pf) = text.read_file(heap, fs, buffer.bytes(pp));
+        pool = pb;
+        if pf != 0 {
+            failed = 1;
+        }
+    }
+    borrow list_path as &lp in {
+        buffer.drop(heap, listing);
+        let (lb, lf) = text.read_file(heap, fs, buffer.bytes(lp));
+        listing = lb;
+        if lf != 0 {
+            failed = 1;
+        }
+    }
+    buffer.drop(heap, pool_path);
+    buffer.drop(heap, list_path);
+    if failed != 0 {
+        buffer.drop(heap, pool);
+        buffer.drop(heap, listing);
+        io.error_all(io, "FAIL the pool or the task list cannot be read\n");
+        return 1;
+    }
+    // the held-out tasks: those of the list on the held-out side of the split
+    var held = buffer.empty(heap, 256);
+    var nheld = 0;
+    borrow listing as &lb in {
+        var k = 1;
+        let n = word_count(buffer.bytes(lb));
+        while k <= n {
+            let name = word(buffer.bytes(lb), k);
+            if side.is_heldout(name) {
+                if nheld > 0 {
+                    held = buffer.push(heap, held, byte_of(32));
+                }
+                held = buffer.append(heap, held, name);
+                nheld = nheld + 1;
+            }
+            k = k + 1;
+        }
+    }
+    buffer.drop(heap, listing);
+    var all = buffer.empty(heap, 1024);
+    var status = 0;
+    var ad = buffer.append(heap, buffer.empty(heap, 64), adapters0);
+    var mm = buffer.append(heap, buffer.empty(heap, 64), "-");
+    var vv = buffer.append(heap, buffer.empty(heap, 64), "-");
+    borrow held as &hb in {
+        borrow ad as &ab in {
+            let (st, line) = evaluate(heap, io, fs, exec, clock, cfg, out, buffer.bytes(ab), buffer.bytes(hb), 0);
+            all = record(heap, io, fs, out, all, line);
+            status = st;
+        }
+        var i = 1;
+        while i <= iters && status == 0 {
+            let t0 = clock_ms(clock);
+            let seed_i = seed * 1000 + i;
+            // four tasks of the pool: a partial shuffle
+            var np = 0;
+            borrow pool as &pn in {
+                np = word_count(buffer.bytes(pn));
+            }
+            var x = seed_i;
+            var q = 0;
+            var chosen = buffer.empty(heap, 64);
+            var c = 0;
+            // the shuffle is on indices kept in a text of numbers: swap by rebuilding
+            var idx = buffer.empty(heap, 64);
+            q = 0;
+            while q < np {
+                idx = buffer.push_nat(heap, idx, q);
+                idx = buffer.push(heap, idx, byte_of(32));
+                q = q + 1;
+            }
+            borrow pool as &plb in {
+                while c < 4 && c < np {
+                    x = next(x);
+                    let span = np - c;
+                    let j = (x / 65536) % span;
+                    // the j-th remaining index, removed from idx
+                    var rest = buffer.empty(heap, 64);
+                    var taken = 0 - 1;
+                    borrow idx as &ib in {
+                        var w = 1;
+                        let nw = word_count(buffer.bytes(ib));
+                        while w <= nw {
+                            let v = text.parse_int(word(buffer.bytes(ib), w));
+                            if w - 1 == j {
+                                taken = v;
+                            } else {
+                                rest = buffer.push_nat(heap, rest, v);
+                                rest = buffer.push(heap, rest, byte_of(32));
+                            }
+                            w = w + 1;
+                        }
+                    }
+                    buffer.drop(heap, idx);
+                    idx = rest;
+                    if c > 0 {
+                        chosen = buffer.push(heap, chosen, byte_of(32));
+                    }
+                    chosen = buffer.append(heap, chosen, word(buffer.bytes(plb), taken + 1));
+                    c = c + 1;
+                }
+            }
+            buffer.drop(heap, idx);
+            var dir = buffer.append(heap, buffer.empty(heap, 64), out);
+            dir = buffer.append(heap, dir, "/i");
+            dir = buffer.push_nat(heap, dir, i);
+            var ov = buffer.append(heap, buffer.empty(heap, 256), "tasks ");
+            borrow chosen as &cr in {
+                ov = buffer.append(heap, ov, buffer.bytes(cr));
+            }
+            ov = buffer.append(heap, ov, "\nstep ");
+            ov = buffer.push_nat(heap, ov, i);
+            ov = buffer.append(heap, ov, "\nseed ");
+            ov = buffer.push_nat(heap, ov, seed_i);
+            ov = buffer.append(heap, ov, "\nquiet 1\nm ");
+            borrow mm as &mr in {
+                ov = buffer.append(heap, ov, buffer.bytes(mr));
+            }
+            ov = buffer.append(heap, ov, "\nv ");
+            borrow vv as &vr in {
+                ov = buffer.append(heap, ov, buffer.bytes(vr));
+            }
+            ov = buffer.push(heap, ov, byte_of(10));
+            var rate = 0.0;
+            var kept = 0;
+            var gn = buffer.empty(heap, 24);
+            var updated = false;
+            borrow dir as &db in {
+                borrow ov as &ob in {
+                    borrow ad as &ab in {
+                        if once(heap, io, fs, exec, clock, cfg, buffer.bytes(db), buffer.bytes(ob), buffer.bytes(ab)) != 0 {
+                            status = 1;
+                        } else {
+                            let (st, part, n) = solved_sum(heap, fs, buffer.bytes(db), iterate.setting_int(cfg, "group", 8));
+                            if n > 0 {
+                                rate = part / float_of(n);
+                            }
+                            let pj = path_text(heap, buffer.bytes(db), "/pack.json");
+                            borrow pj as &pjb in {
+                                let (pt, pf) = text.read_file(heap, fs, buffer.bytes(pjb));
+                                borrow pt as &ptb in {
+                                    kept = text.parse_int(json_value(buffer.bytes(ptb), "\"kept\":"));
+                                }
+                                buffer.drop(heap, pt);
+                            }
+                            buffer.drop(heap, pj);
+                            let aj = path_text(heap, buffer.bytes(db), "/adamw.out");
+                            borrow aj as &ajb in {
+                                let (at, af) = text.read_file(heap, fs, buffer.bytes(ajb));
+                                if af == 0 {
+                                    borrow at as &atb in {
+                                        gn = buffer.append(heap, gn, json_value(buffer.bytes(atb), "\"grad_norm\":"));
+                                    }
+                                    updated = true;
+                                }
+                                buffer.drop(heap, at);
+                            }
+                            buffer.drop(heap, aj);
+                        }
+                    }
+                }
+            }
+            if status == 0 {
+                var line = buffer.append(heap, buffer.empty(heap, 192), "{\"kind\":\"train\",\"step\":");
+                line = buffer.push_nat(heap, line, i);
+                line = buffer.append(heap, line, ",\"tasks\":\"");
+                borrow chosen as &cr in {
+                    line = buffer.append(heap, line, buffer.bytes(cr));
+                }
+                line = buffer.append(heap, line, "\",\"rate\":");
+                line = fixed6(heap, line, rate);
+                line = buffer.append(heap, line, ",\"kept\":");
+                line = buffer.push_nat(heap, line, kept);
+                line = buffer.append(heap, line, ",\"grad_norm\":");
+                borrow gn as &gr in {
+                    if len(buffer.bytes(gr)) == 0 {
+                        line = buffer.push(heap, line, byte_of(48));
+                    } else {
+                        line = buffer.append(heap, line, buffer.bytes(gr));
+                    }
+                }
+                line = buffer.append(heap, line, ",\"secs\":");
+                line = buffer.push_nat(heap, line, (clock_ms(clock) - t0) / 1000);
+                line = buffer.append(heap, line, "}\n");
+                all = record(heap, io, fs, out, all, line);
+                if updated {
+                    if i > 1 && (i - 1) % every != 0 {
+                        drop_moments(heap, fs, out, i - 1);
+                    }
+                    buffer.drop(heap, ad);
+                    buffer.drop(heap, mm);
+                    buffer.drop(heap, vv);
+                    borrow dir as &dr in {
+                        ad = path_text(heap, buffer.bytes(dr), "/new.params.f64");
+                        mm = path_text(heap, buffer.bytes(dr), "/new.m.f64");
+                        vv = path_text(heap, buffer.bytes(dr), "/new.v.f64");
+                    }
+                }
+                borrow dir as &dr in {
+                    clean(heap, exec, fs, buffer.bytes(dr), false, 64);
+                }
+            }
+            buffer.drop(heap, dir);
+            buffer.drop(heap, ov);
+            buffer.drop(heap, chosen);
+            buffer.drop(heap, gn);
+            if status == 0 && (i % every == 0 || i == iters) {
+                borrow ad as &ab in {
+                    let (st, line) = evaluate(heap, io, fs, exec, clock, cfg, out, buffer.bytes(ab), buffer.bytes(hb), i);
+                    all = record(heap, io, fs, out, all, line);
+                    status = st;
+                }
+            }
+            i = i + 1;
+        }
+    }
+    if status != 0 {
+        io.error_all(io, "FAIL the loop stopped on an error\n");
+    } else {
+        io.error_all(io, "done: adapters ");
+        borrow ad as &ab in {
+            io.error_all(io, buffer.bytes(ab));
+        }
+        io.error_all(io, "\n");
+    }
+    buffer.drop(heap, ad);
+    buffer.drop(heap, mm);
+    buffer.drop(heap, vv);
+    buffer.drop(heap, all);
+    buffer.drop(heap, pool);
+    buffer.drop(heap, held);
+    return status;
+}
+
+fn path_text[&h, &d, &n](heap: &!h Heap, dir: &d [byte], name: &n [byte]) -> [heap] buffer.Buffer {
+    return buffer.append(heap, buffer.append(heap, buffer.empty(heap, 64), dir), name);
+}
+
+// The three optimiser files of iteration `i` that the next one no longer needs.
+fn drop_moments[&h, &f, &o](heap: &!h Heap, fs: &f Fs(""), out: &o [byte], i: int) -> [heap, fs_write("")] int {
+    var k = 0;
+    while k < 3 {
+        var p = buffer.append(heap, buffer.empty(heap, 64), out);
+        p = buffer.append(heap, p, "/i");
+        p = buffer.push_nat(heap, p, i);
+        if k == 0 {
+            p = buffer.append(heap, p, "/new.params.f64");
+        } else if k == 1 {
+            p = buffer.append(heap, p, "/new.m.f64");
+        } else {
+            p = buffer.append(heap, p, "/new.v.f64");
+        }
+        borrow p as &pb in {
+            fs_remove(fs, buffer.bytes(pb));
+        }
+        buffer.drop(heap, p);
+        k = k + 1;
+    }
+    return 0;
+}
