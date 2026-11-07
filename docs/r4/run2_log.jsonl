@@ -1,0 +1,45 @@
+{"kind":"eval","step":0,"heldout_tasks":28,"rate":0.254464,"secs":369}
+{"kind":"train","step":1,"tasks":"fib digit_sum_base fizzbuzz_code is_valid_triangle","rate":0.281250,"kept":24,"grad_norm":0.18834170038781656,"secs":100}
+{"kind":"train","step":2,"tasks":"sum_odd_digits abs_diff count_odd_digits sum_range","rate":0.187500,"kept":24,"grad_norm":0.15946276556081837,"secs":66}
+{"kind":"train","step":3,"tasks":"lcm count_odd_digits mod_floor digit_sum","rate":0.468750,"kept":24,"grad_norm":0.20292552166003258,"secs":125}
+{"kind":"train","step":4,"tasks":"is_prime lcm triangular_index count_multiples","rate":0.406250,"kept":32,"grad_norm":0.15097522554975779,"secs":77}
+{"kind":"train","step":5,"tasks":"bit_length sum_evens_to reverse_number digit_sum","rate":0.343750,"kept":32,"grad_norm":0.15733559442261974,"secs":85}
+{"kind":"train","step":6,"tasks":"sum_multiples fizzbuzz_code bit_length is_prime","rate":0.531250,"kept":24,"grad_norm":0.13724376285145565,"secs":78}
+{"kind":"train","step":7,"tasks":"ticket_price hours_between decimal_trailing_zeros sum_3_or_5","rate":0.281250,"kept":31,"grad_norm":0.1929166086851461,"secs":86}
+{"kind":"train","step":8,"tasks":"min_digit count_primes_upto sum_evens_to lcm","rate":0.375000,"kept":32,"grad_norm":0.1613065922862645,"secs":76}
+{"kind":"train","step":9,"tasks":"is_perfect_number spread count_multiples floor_div","rate":0.343750,"kept":32,"grad_norm":0.13573688955702803,"secs":77}
+{"kind":"train","step":10,"tasks":"sum_odd_to clamp_percent abs_diff decimal_trailing_zeros","rate":0.562500,"kept":32,"grad_norm":0.18703393111017877,"secs":76}
+{"kind":"eval","step":10,"heldout_tasks":28,"rate":0.477679,"secs":380}
+{"kind":"train","step":11,"tasks":"sum_cubes_to max3 quadrant gcd","rate":0.875000,"kept":24,"grad_norm":0.21069252599007507,"secs":127}
+{"kind":"train","step":12,"tasks":"bit_length min_digit decimal_trailing_zeros fib","rate":0.250000,"kept":23,"grad_norm":0.21862303851879902,"secs":167}
+{"kind":"train","step":13,"tasks":"sum_multiples triangular_index pow_int abs_diff","rate":0.843750,"kept":16,"grad_norm":0.20466646746054581,"secs":59}
+{"kind":"train","step":14,"tasks":"clamp_percent first_digit hours_between sum_cubes_to","rate":0.562500,"kept":24,"grad_norm":0.22659660575288784,"secs":64}
+{"kind":"train","step":15,"tasks":"fizzbuzz_code shipping_cost bit_length hours_between","rate":0.781250,"kept":24,"grad_norm":0.2701339877339074,"secs":68}
+{"kind":"train","step":16,"tasks":"sum_odd_digits sum_squares_to quadrant shipping_cost","rate":0.750000,"kept":16,"grad_norm":0.2261778542746261,"secs":58}
+{"kind":"train","step":17,"tasks":"shipping_cost is_prime count_primes_upto max3","rate":0.781250,"kept":24,"grad_norm":0.14972632231131391,"secs":64}
+{"kind":"train","step":18,"tasks":"sum_cubes_to max4 sum_squares_to int_sqrt","rate":0.500000,"kept":32,"grad_norm":0.22640154428147766,"secs":76}
+{"kind":"train","step":19,"tasks":"digit_sum int_sqrt abs_diff fib_even_sum","rate":0.625000,"kept":24,"grad_norm":0.20972963002900016,"secs":118}
+{"kind":"train","step":20,"tasks":"abs_val sum_multiples is_odd quadrant","rate":0.843750,"kept":8,"grad_norm":0.325559910849521,"secs":61}
+{"kind":"eval","step":20,"heldout_tasks":28,"rate":0.526786,"secs":511}
+{"kind":"train","step":21,"tasks":"clamp_percent sum_odd_to is_prime first_digit","rate":0.906250,"kept":24,"grad_norm":0.19285312492833115,"secs":70}
+{"kind":"train","step":22,"tasks":"quadrant pow_int sum_3_or_5 gcd","rate":0.843750,"kept":16,"grad_norm":0.1894708085074555,"secs":58}
+{"kind":"train","step":23,"tasks":"int_sqrt floor_div ticket_price max4","rate":0.531250,"kept":24,"grad_norm":0.19873049357733577,"secs":66}
+{"kind":"train","step":24,"tasks":"is_odd is_valid_triangle bit_length decimal_trailing_zeros","rate":0.750000,"kept":8,"grad_norm":0.30505781806602,"secs":72}
+{"kind":"train","step":25,"tasks":"max3 is_perfect_number spread sum_evens_to","rate":0.625000,"kept":32,"grad_norm":0.12896669714618533,"secs":77}
+{"kind":"train","step":26,"tasks":"is_valid_triangle count_odd_digits steps_to_zero digit_sum_base","rate":0.937500,"kept":16,"grad_norm":0.2554041113162028,"secs":59}
+{"kind":"train","step":27,"tasks":"first_digit lcm is_perfect_number spread","rate":0.343750,"kept":32,"grad_norm":0.1963342676820669,"secs":75}
+{"kind":"train","step":28,"tasks":"gcd sum_evens_to clamp_percent sum_cubes_to","rate":0.906250,"kept":8,"grad_norm":0.37967343738601034,"secs":49}
+{"kind":"train","step":29,"tasks":"fizzbuzz_code quadrant max4 triangular_index","rate":0.593750,"kept":24,"grad_norm":0.25325771149735715,"secs":139}
+{"kind":"train","step":30,"tasks":"triangular_index hours_between sum_range reverse_number","rate":0.406250,"kept":24,"grad_norm":0.32202564342103396,"secs":70}
+{"kind":"eval","step":30,"heldout_tasks":28,"rate":0.513393,"secs":549}
+{"kind":"train","step":31,"tasks":"spread sum_3_or_5 max3 round_to_ten","rate":0.375000,"kept":24,"grad_norm":0.20568040620170605,"secs":66}
+{"kind":"train","step":32,"tasks":"sum_evens_to spread sum_odd_digits sum_3_or_5","rate":0.625000,"kept":16,"grad_norm":0.30456901141970955,"secs":57}
+{"kind":"train","step":33,"tasks":"digit_sum_base clamp_percent fib_even_sum digit_sum","rate":0.875000,"kept":8,"grad_norm":0.37370775640214926,"secs":48}
+{"kind":"train","step":34,"tasks":"abs_val steps_to_zero max4 floor_div","rate":0.750000,"kept":8,"grad_norm":0.38890283729191116,"secs":54}
+{"kind":"train","step":35,"tasks":"fib_even_sum fib count_odd_digits decimal_trailing_zeros","rate":0.437500,"kept":24,"grad_norm":0.2817029183121683,"secs":183}
+{"kind":"train","step":36,"tasks":"floor_div triangular_index sum_cubes_to ticket_price","rate":0.750000,"kept":8,"grad_norm":0.5513896537853884,"secs":55}
+{"kind":"train","step":37,"tasks":"count_multiples abs_val int_sqrt max4","rate":0.656250,"kept":16,"grad_norm":0.44959053547781136,"secs":162}
+{"kind":"train","step":38,"tasks":"is_odd sum_odd_to lcm spread","rate":0.562500,"kept":32,"grad_norm":0.2474532622186047,"secs":72}
+{"kind":"train","step":39,"tasks":"sum_evens_to ticket_price min_digit pow_int","rate":0.812500,"kept":8,"grad_norm":0.8650756938946383,"secs":68}
+{"kind":"train","step":40,"tasks":"max4 steps_to_zero count_odd_digits hours_between","rate":0.843750,"kept":24,"grad_norm":0.260057096634225,"secs":67}
+{"kind":"eval","step":40,"heldout_tasks":28,"rate":0.486607,"secs":511}

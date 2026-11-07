@@ -94,7 +94,7 @@ fi
 a=$(./build/rl ask 'while read l; do echo "got:$l"; done' 1 checkpoint 400 | tr '\n' ' ')
 [ "$a" = "got:1 got:checkpoint got:400 " ] || { echo "FAIL ask replies: $a"; fail=1; }
 [ "$(./build/rl ask 'python3 -c "import sys
-for l in sys.stdin: print(l.strip()*30000, flush=True)"' x yy | wc -c | tr -d ' ')" = 90003 ] || { echo "FAIL ask long replies"; fail=1; }
+for l in sys.stdin: print(l.strip()*30000, flush=True)"' x yy | wc -c | tr -d ' ')" = 90002 ] || { echo "FAIL ask long replies"; fail=1; }
 ./build/rl ask 'read l; echo once' a b 2>&1 | grep -q '"rl.ask.session"' || { echo "FAIL ask refusal rl.ask.session"; fail=1; }
 ./build/rl ask 2>&1 | grep -q '"rl.usage"' || { echo "FAIL ask refusal rl.usage"; fail=1; }
 python3 scripts/crosscheck.py "$C" > work/crosscheck.txt 2>&1 || { echo "FAIL crosscheck"; grep DISAGREE work/crosscheck.txt; fail=1; }
