@@ -1,0 +1,39 @@
+edition 9;
+
+module rl.prompt;
+
+// The text a policy is given for one task (docs/design.md section 6): the primer, the task (signature, description, examples) and the instruction; with `chat`, wrapped in Qwen's chat template
+// (system and user turns, then the assistant turn open). Never carries a `case:` line: the hidden cases are not part of a prompt. `rl prompt`, `rl chat` and `rl iterate` all read it from here.
+
+import std.buffer;
+import rl.grade;
+import rl.text;
+
+pub fn make[&h, &s, &r](heap: &!h Heap, spec: &s [byte], primer: &r [byte], chat: bool) -> [heap] buffer.Buffer {
+    var out = buffer.empty(heap, 4096);
+    if chat {
+        out = buffer.append(heap, out, "<|im_start|>system\nYou are Qwen, created by Alibaba Cloud. You are a helpful assistant.<|im_end|>\n<|im_start|>user\n");
+    }
+    out = buffer.append(heap, out, primer);
+    out = buffer.append(heap, out, "\n\n## The task\n\nWrite this function in cancho:\n\n");
+    out = buffer.append(heap, out, grade.spec_value(spec, "sig:"));
+    out = buffer.append(heap, out, "\n\n");
+    out = buffer.append(heap, out, grade.spec_value(spec, "desc:"));
+    out = buffer.append(heap, out, "\n\nExamples:\n");
+    let n = text.line_count(spec);
+    var k = 1;
+    while k <= n {
+        let ex = text.after(text.line(spec, k), "example:");
+        if len(ex) > 0 {
+            out = buffer.append(heap, out, "    ");
+            out = buffer.append(heap, out, ex);
+            out = buffer.push(heap, out, byte_of(10));
+        }
+        k = k + 1;
+    }
+    out = buffer.append(heap, out, "\nReply with the complete program in one ```cancho code block: `edition 7;`, then the function (and any helper functions it needs). No `main`, no tests, no explanation.\n");
+    if chat {
+        out = buffer.append(heap, out, "<|im_end|>\n<|im_start|>assistant\n");
+    }
+    return out;
+}

@@ -14,7 +14,9 @@ edition 9;
 import rl.adamw;
 import rl.adv;
 import rl.grade;
+import rl.iterate;
 import rl.pack;
+import rl.prompt;
 import rl.report;
 import rl.rollin;
 import rl.rollout;
@@ -205,31 +207,7 @@ fn prompt_command[&h, &i, &g, &f](heap: &!h Heap, io: &!i Io, args: &g Args, fs:
         } else {
             borrow spec as &sb in {
                 borrow primer as &rb in {
-                    var out = buffer.empty(heap, 4096);
-                    if chat {
-                        out = buffer.append(heap, out, "<|im_start|>system\nYou are Qwen, created by Alibaba Cloud. You are a helpful assistant.<|im_end|>\n<|im_start|>user\n");
-                    }
-                    out = buffer.append(heap, out, buffer.bytes(rb));
-                    out = buffer.append(heap, out, "\n\n## The task\n\nWrite this function in cancho:\n\n");
-                    out = buffer.append(heap, out, grade.spec_value(buffer.bytes(sb), "sig:"));
-                    out = buffer.append(heap, out, "\n\n");
-                    out = buffer.append(heap, out, grade.spec_value(buffer.bytes(sb), "desc:"));
-                    out = buffer.append(heap, out, "\n\nExamples:\n");
-                    let n = text.line_count(buffer.bytes(sb));
-                    var k = 1;
-                    while k <= n {
-                        let ex = text.after(text.line(buffer.bytes(sb), k), "example:");
-                        if len(ex) > 0 {
-                            out = buffer.append(heap, out, "    ");
-                            out = buffer.append(heap, out, ex);
-                            out = buffer.push(heap, out, byte_of(10));
-                        }
-                        k = k + 1;
-                    }
-                    out = buffer.append(heap, out, "\nReply with the complete program in one ```cancho code block: `edition 7;`, then the function (and any helper functions it needs). No `main`, no tests, no explanation.\n");
-                    if chat {
-                        out = buffer.append(heap, out, "<|im_end|>\n<|im_start|>assistant\n");
-                    }
+                    let out = prompt.make(heap, buffer.bytes(sb), buffer.bytes(rb), chat);
                     borrow out as &ob in {
                         buffer.write(io, ob);
                     }
@@ -731,6 +709,25 @@ fn ask_command[&h, &i, &g, &x](heap: &!h Heap, io: &!i Io, args: &g Args, exec: 
     return status;
 }
 
+// rl iterate SETTINGS OUT ADAPTERS: one GRPO iteration (lib/rl/iterate.cho, docs/design.md section 47). SETTINGS is a `key value` file naming the programs and numbers (see iterate.run);
+// OUT is a directory that holds kv pre dec cand train work; ADAPTERS is the current adapters (binary64). Exit 0 when the stages ran, 1 when one failed (named on standard error), 2 for usage.
+fn iterate_command[&h, &i, &g, &f, &x, &c](heap: &!h Heap, io: &!i Io, args: &g Args, fs: &f Fs(""), exec: &x Exec(""), clock: &c Clock) -> [heap, io_write, err_write, args, fs_read(""), fs_write(""), file_read, exec(""), clock, pipe_write, pipe_read] int {
+    if arg_count(args) != 5 {
+        return refuse(heap, io, "rl.usage", "rl iterate SETTINGS OUT ADAPTERS");
+    }
+    let (cfg, failed) = text.read_file(heap, fs, arg(args, 2));
+    var status = 0;
+    if failed != 0 {
+        status = refuse(heap, io, "rl.iterate.settings", "the settings file cannot be read");
+    } else {
+        borrow cfg as &cb in {
+            status = iterate.run(heap, io, fs, exec, clock, buffer.bytes(cb), arg(args, 3), arg(args, 4));
+        }
+    }
+    buffer.drop(heap, cfg);
+    return status;
+}
+
 fn main(world: World) -> [] int {
     let Split { io, ffi, fs, heap, args, net, clock, signals, exec, tty } = split(world);
     release(ffi);
@@ -768,10 +765,12 @@ fn main(world: World) -> [] int {
                                 status = extract_command(h, i, g, f);
                             } else if arg_count(g) >= 2 && bytes.equal(arg(g, 1), "samples") {
                                 status = samples_command(h, i, g, f);
+                            } else if arg_count(g) >= 2 && bytes.equal(arg(g, 1), "iterate") {
+                                status = iterate_command(h, i, g, f, x, c);
                             } else if arg_count(g) >= 2 && bytes.equal(arg(g, 1), "ask") {
                                 status = ask_command(h, i, g, x);
                             } else {
-                                status = refuse(h, i, "rl.usage", "the commands are `rl grade`, `rl split`, `rl prompt`, `rl chat`, `rl report`, `rl tasks`, `rl pack`, `rl adamw`, `rl rollin`, `rl complete`, `rl extract`, `rl samples` and `rl ask`");
+                                status = refuse(h, i, "rl.usage", "the commands are `rl grade`, `rl split`, `rl prompt`, `rl chat`, `rl report`, `rl tasks`, `rl pack`, `rl adamw`, `rl rollin`, `rl complete`, `rl extract`, `rl samples`, `rl iterate` and `rl ask`");
                             }
                         }
                     }
