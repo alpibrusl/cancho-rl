@@ -15,6 +15,7 @@ import rl.adamw;
 import rl.adv;
 import rl.grade;
 import rl.iterate;
+import rl.loop;
 import rl.pack;
 import rl.prompt;
 import rl.report;
@@ -728,6 +729,24 @@ fn iterate_command[&h, &i, &g, &f, &x, &c](heap: &!h Heap, io: &!i Io, args: &g 
     return status;
 }
 
+// rl loop SETTINGS OUT ADAPTERS0: iterations and held-out evaluations from the starting adapters (lib/rl/loop.cho, docs/design.md section 48). SETTINGS as for `rl iterate`, and iters every loop_seed pool list.
+fn loop_command[&h, &i, &g, &f, &x, &c](heap: &!h Heap, io: &!i Io, args: &g Args, fs: &f Fs(""), exec: &x Exec(""), clock: &c Clock) -> [heap, io_write, err_write, args, fs_read(""), fs_write(""), file_read, exec(""), clock, pipe_write, pipe_read] int {
+    if arg_count(args) != 5 {
+        return refuse(heap, io, "rl.usage", "rl loop SETTINGS OUT ADAPTERS0");
+    }
+    let (cfg, failed) = text.read_file(heap, fs, arg(args, 2));
+    var status = 0;
+    if failed != 0 {
+        status = refuse(heap, io, "rl.loop.settings", "the settings file cannot be read");
+    } else {
+        borrow cfg as &cb in {
+            status = loop.run(heap, io, fs, exec, clock, buffer.bytes(cb), arg(args, 3), arg(args, 4));
+        }
+    }
+    buffer.drop(heap, cfg);
+    return status;
+}
+
 fn main(world: World) -> [] int {
     let Split { io, ffi, fs, heap, args, net, clock, signals, exec, tty } = split(world);
     release(ffi);
@@ -767,10 +786,12 @@ fn main(world: World) -> [] int {
                                 status = samples_command(h, i, g, f);
                             } else if arg_count(g) >= 2 && bytes.equal(arg(g, 1), "iterate") {
                                 status = iterate_command(h, i, g, f, x, c);
+                            } else if arg_count(g) >= 2 && bytes.equal(arg(g, 1), "loop") {
+                                status = loop_command(h, i, g, f, x, c);
                             } else if arg_count(g) >= 2 && bytes.equal(arg(g, 1), "ask") {
                                 status = ask_command(h, i, g, x);
                             } else {
-                                status = refuse(h, i, "rl.usage", "the commands are `rl grade`, `rl split`, `rl prompt`, `rl chat`, `rl report`, `rl tasks`, `rl pack`, `rl adamw`, `rl rollin`, `rl complete`, `rl extract`, `rl samples`, `rl iterate` and `rl ask`");
+                                status = refuse(h, i, "rl.usage", "the commands are `rl grade`, `rl split`, `rl prompt`, `rl chat`, `rl report`, `rl tasks`, `rl pack`, `rl adamw`, `rl rollin`, `rl complete`, `rl extract`, `rl samples`, `rl iterate`, `rl loop` and `rl ask`");
                             }
                         }
                     }

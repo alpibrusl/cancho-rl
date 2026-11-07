@@ -1,0 +1,3 @@
+{"kind":"eval","step":0,"heldout_tasks":28,"rate":0.254464,"secs":417}
+{"kind":"train","step":1,"tasks":"round_to_ten abs_val reverse_number fizzbuzz_code","rate":0.437500,"kept":24,"grad_norm":0.1682333493582765,"secs":77}
+{"kind":"eval","step":1,"heldout_tasks":28,"rate":0.312500,"secs":416}
