@@ -1,0 +1,844 @@
+edition 9;
+
+module rl.iterate;
+
+// One GRPO iteration, driven from cancho (docs/design.md section 47): the same stages, in the same order, as scripts/iterate.sh, which this is checked against file by file. The stages that are
+// this package's own (the chat prompts, the rollout's inputs and outputs, the samples, the packing) are called in this process; the programs that are not (`cancho-gpu tokenize` and `detokenize`,
+// `qsw`, the Metal sessions, and `rl` itself for `grade` and `adamw`) are spawned, each with its standard output and error written to files in the output directory.
+
+import std.buffer;
+import std.bytes;
+import std.io;
+import std.json;
+import std.process;
+import std.vec;
+import rl.pack;
+import rl.prompt;
+import rl.rollin;
+import rl.rollout;
+import rl.session;
+import rl.text;
+
+// What the settings file says for `key` (a line `key value`), or an empty slice.
+pub fn setting[&c, &k](cfg: &c [byte], key: &k [byte]) -> [] &c [byte] {
+    let n = text.line_count(cfg);
+    var k = 1;
+    while k <= n {
+        let ln = text.line(cfg, k);
+        if bytes.starts_with(ln, key) && len(ln) > len(key) && int_of(ln[len(key)]) == 32 {
+            return bytes.trim(ln[len(key)..len(ln)]);
+        }
+        k = k + 1;
+    }
+    return cfg[0..0];
+}
+
+fn setting_int[&c, &k](cfg: &c [byte], key: &k [byte], fallback: int) -> [] int {
+    let v = setting(cfg, key);
+    if len(v) == 0 {
+        return fallback;
+    }
+    return text.parse_int(v);
+}
+
+// A decimal number in a setting, as a float.
+fn float_of_text[&t](v: &t [byte], fallback: float) -> [] float {
+    if len(v) == 0 || len(v) > 64 {
+        return fallback;
+    }
+    var out = fallback;
+    region a {
+        let tape = alloc_slice[a](3 * (len(v) + 8), 0);
+        let st = alloc_slice[a](2, 0);
+        let nodes = json.parse_with(v, tape, st);
+        if nodes > 0 && json.is_number(tape, 0) {
+            out = json.to_float(v, tape, 0);
+        }
+    }
+    return out;
+}
+
+fn path_in[&h, &d, &n](heap: &!h Heap, dir: &d [byte], name: &n [byte]) -> [heap] buffer.Buffer {
+    var p = buffer.append(heap, buffer.empty(heap, 64), dir);
+    p = buffer.push(heap, p, byte_of(47));
+    return buffer.append(heap, p, name);
+}
+
+// `dir/stem` and `k` and `tail`: numbered(dir, "g", 3, ".f64") is `dir/g3.f64`, numbered(dir, "res.", 3, ".json") is `dir/res.3.json`.
+fn numbered[&h, &d, &s, &e](heap: &!h Heap, dir: &d [byte], stem: &s [byte], k: int, tail: &e [byte]) -> [heap] buffer.Buffer {
+    var p = path_in(heap, dir, stem);
+    p = buffer.push_nat(heap, p, k);
+    return buffer.append(heap, p, tail);
+}
+
+// A program's arguments are a list of texts each followed by a NUL.
+fn add[&h, &s](heap: &!h Heap, list: buffer.Buffer, one: &s [byte]) -> [heap] buffer.Buffer {
+    return buffer.push(heap, buffer.append(heap, list, one), byte_of(0));
+}
+
+fn add_nat[&h](heap: &!h Heap, list: buffer.Buffer, n: int) -> [heap] buffer.Buffer {
+    return buffer.push(heap, buffer.push_nat(heap, list, n), byte_of(0));
+}
+
+fn add_in[&h, &d, &n](heap: &!h Heap, list: buffer.Buffer, dir: &d [byte], name: &n [byte]) -> [heap] buffer.Buffer {
+    var l = buffer.append(heap, list, dir);
+    l = buffer.push(heap, l, byte_of(47));
+    l = buffer.append(heap, l, name);
+    return buffer.push(heap, l, byte_of(0));
+}
+
+fn write_file[&h, &f, &d, &n, &c](heap: &!h Heap, fs: &f Fs(""), dir: &d [byte], name: &n [byte], content: &c [byte]) -> [heap, fs_write("")] int {
+    let path = path_in(heap, dir, name);
+    var wrote = 0;
+    borrow path as &pb in {
+        wrote = fs_write(fs, buffer.bytes(pb), content);
+    }
+    buffer.drop(heap, path);
+    return wrote;
+}
+
+// The program `tool` with `list`, its standard output in the file `out_path` and its standard error in `err_path`: its exit code, 256 and the signal if killed, -1 if it did not run.
+fn spawn_files[&x, &f, &t, &l, &o, &e](exec: &x Exec(""), fs: &f Fs(""), tool: &t [byte], list: &l [byte], out_path: &o [byte], err_path: &e [byte]) -> [exec(""), fs_write("")] int {
+    match open_write(fs, out_path) {
+        Opened::Failed(e1) => {
+            return 0 - 1;
+        }
+        Opened::Ok(out_file) => {
+            match open_write(fs, err_path) {
+                Opened::Failed(e2) => {
+                    file_close(out_file);
+                    return 0 - 1;
+                }
+                Opened::Ok(err_file) => {
+                    match exec_spawn(exec, tool, list, "PATH=/usr/bin:/bin\0", Stdio::Null, Stdio::File(out_file), Stdio::File(err_file)) {
+                        Spawned::Failed(e3) => {
+                            return 0 - 1;
+                        }
+                        Spawned::Ok(child) => {
+                            match child_wait(child) {
+                                Exited::Code(n) => {
+                                    return n;
+                                }
+                                Exited::Signaled(g) => {
+                                    return 256 + g;
+                                }
+                                Exited::Failed(e4) => {
+                                    return 0 - 1;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// Run `tool` with `list` (consumed) in the output directory `dir`: standard output to `dir/out_name`, standard error to `dir/err_name`.
+fn go[&h, &x, &f, &d, &t](heap: &!h Heap, exec: &x Exec(""), fs: &f Fs(""), dir: &d [byte], tool: &t [byte], list: buffer.Buffer, out_name: &static [byte], err_name: &static [byte]) -> [heap, exec(""), fs_write("")] int {
+    let out_path = path_in(heap, dir, out_name);
+    let err_path = path_in(heap, dir, err_name);
+    var code = 0 - 1;
+    borrow list as &lb in {
+        borrow out_path as &op in {
+            borrow err_path as &ep in {
+                code = spawn_files(exec, fs, tool, buffer.bytes(lb), buffer.bytes(op), buffer.bytes(ep));
+            }
+        }
+    }
+    buffer.drop(heap, list);
+    buffer.drop(heap, out_path);
+    buffer.drop(heap, err_path);
+    return code;
+}
+
+// A time line, `name  secs`, to the log and to the standard error.
+fn lap[&h, &i](heap: &!h Heap, io: &!i Io, log: buffer.Buffer, name: &static [byte], t0: int, t1: int) -> [heap, err_write] buffer.Buffer {
+    var line = buffer.append(heap, buffer.empty(heap, 48), name);
+    line = buffer.append(heap, line, "  ");
+    line = buffer.push_nat(heap, line, (t1 - t0) / 1000);
+    line = buffer.push(heap, line, byte_of(46));
+    line = buffer.push_nat(heap, line, (t1 - t0) % 1000 / 100);
+    line = buffer.append(heap, line, " s\n");
+    borrow line as &lr in {
+        io.error_all(io, buffer.bytes(lr));
+    }
+    var out = buffer.append(heap, log, "");
+    borrow line as &lr in {
+        out = buffer.append(heap, out, buffer.bytes(lr));
+    }
+    buffer.drop(heap, line);
+    return out;
+}
+
+fn fail[&i](io: &!i Io, stage: &static [byte]) -> [err_write] int {
+    io.error_all(io, "FAIL ");
+    io.error_all(io, stage);
+    io.error_all(io, "\n");
+    return 1;
+}
+
+// The binary64 bit pattern of `x` as a decimal integer (what the decode config calls `invt`).
+fn bits[&h](heap: &!h Heap, list: buffer.Buffer, x: float) -> [heap] buffer.Buffer {
+    return buffer.push_nat(heap, list, bits_of(x));
+}
+
+// A session config for `nb` sequences of `t` positions and `steps` steps; the decode one adds `invt`.
+fn write_config[&h, &f, &c, &d, &n](heap: &!h Heap, fs: &f Fs(""), cfg: &c [byte], dir: &d [byte], name: &n [byte], nb: int, steps: int, decode: bool) -> [heap, fs_write("")] int {
+    var s = buffer.append(heap, buffer.empty(heap, 256), "layers 28\nd 1536\nh 12\nhkv 2\ndh 128\nff 8960\nv 151936\nt ");
+    s = buffer.push_nat(heap, s, setting_int(cfg, "t", 1152));
+    s = buffer.append(heap, s, "\nnb ");
+    s = buffer.push_nat(heap, s, nb);
+    s = buffer.append(heap, s, "\ntied 1\nr 16\nsteps ");
+    s = buffer.push_nat(heap, s, steps);
+    s = buffer.append(heap, s, "\neps ");
+    s = bits(heap, s, 0.000001);
+    s = buffer.append(heap, s, "\ntheta ");
+    s = bits(heap, s, 1000000.0);
+    s = buffer.push(heap, s, byte_of(10));
+    if decode {
+        s = buffer.append(heap, s, "invt ");
+        s = bits(heap, s, float_of_text(setting(cfg, "invt"), 1.25));
+        s = buffer.push(heap, s, byte_of(10));
+    }
+    var wrote = 0 - 1;
+    borrow s as &sb in {
+        wrote = write_file(heap, fs, dir, name, buffer.bytes(sb));
+    }
+    buffer.drop(heap, s);
+    return wrote;
+}
+
+// A Metal session spoken to line by line: every line of `requests` is sent and every reply written, a line each, to `dir/out_name`. 0, or the stage that failed.
+fn converse[&h, &x, &f, &m, &d, &r](heap: &!h Heap, exec: &x Exec(""), fs: &f Fs(""), metal: &m [byte], dir: &d [byte], session_name: &static [byte], requests: &r [byte], out_name: &static [byte]) -> [heap, exec(""), fs_write(""), pipe_write, pipe_read] int {
+    var args = add_in(heap, buffer.empty(heap, 64), dir, session_name);
+    var status = 0;
+    borrow args as &ab in {
+        match session.start(heap, exec, metal, buffer.bytes(ab), "PATH=/usr/bin:/bin\0") {
+            session.Started::Failed(e) => {
+                status = 1;
+            }
+            session.Started::Ok(first) => {
+                var s = first;
+                var all = buffer.empty(heap, 256);
+                let n = text.line_count(requests);
+                var k = 1;
+                while k <= n && status == 0 {
+                    let (next, reply, st) = session.ask(heap, s, text.line(requests, k));
+                    s = next;
+                    if st != 0 {
+                        status = 2;
+                    } else {
+                        borrow reply as &rb in {
+                            all = buffer.append(heap, all, buffer.bytes(rb));
+                        }
+                        all = buffer.push(heap, all, byte_of(10));
+                    }
+                    buffer.drop(heap, reply);
+                    k = k + 1;
+                }
+                let code = session.finish(heap, s);
+                if status == 0 && code != 0 {
+                    status = 3;
+                }
+                borrow all as &ar in {
+                    if write_file(heap, fs, dir, out_name, buffer.bytes(ar)) < 0 && status == 0 {
+                        status = 4;
+                    }
+                }
+                buffer.drop(heap, all);
+            }
+        }
+    }
+    buffer.drop(heap, args);
+    return status;
+}
+
+// Candidates k.. of `end` graded by `rl grade` children, at most as many at a time as the recursion is deep: each starts, the rest start, then each is waited for.
+fn grade_range[&h, &x, &f, &c, &d, &p](heap: &!h Heap, exec: &x Exec(""), fs: &f Fs(""), cfg: &c [byte], dir: &d [byte], tasks: &p [byte], k: int, end: int) -> [heap, exec(""), fs_write("")] int {
+    let group = setting_int(cfg, "group", 8);
+    let name = text.line(tasks, k / group + 1);
+    let mut_dir = setting(cfg, "tasks_dir");
+    var task_dir = buffer.append(heap, buffer.empty(heap, 64), mut_dir);
+    if len(mut_dir) == 0 {
+        task_dir = buffer.append(heap, task_dir, "tasks");
+    }
+    task_dir = buffer.push(heap, task_dir, byte_of(47));
+    task_dir = buffer.append(heap, task_dir, name);
+    var args = add(heap, buffer.empty(heap, 256), "grade");
+    args = add(heap, args, setting(cfg, "cho"));
+    borrow task_dir as &tb in {
+        args = add(heap, args, buffer.bytes(tb));
+    }
+    let cand = numbered(heap, dir, "cand/c.", k, ".cho");
+    let scratch = numbered(heap, dir, "work/w", k, ".cho");
+    borrow cand as &cb in {
+        args = add(heap, args, buffer.bytes(cb));
+    }
+    borrow scratch as &sb in {
+        args = add(heap, args, buffer.bytes(sb));
+    }
+    let out_path = numbered(heap, dir, "res.", k, ".json");
+    var code = 0 - 1;
+    var status = 0;
+    borrow args as &ab in {
+        borrow out_path as &op in {
+            match open_write(fs, buffer.bytes(op)) {
+                Opened::Failed(e1) => {
+                    status = 1;
+                }
+                Opened::Ok(out_file) => {
+                    match exec_spawn(exec, setting(cfg, "rl"), buffer.bytes(ab), "PATH=/usr/bin:/bin\0", Stdio::Null, Stdio::File(out_file), Stdio::Null) {
+                        Spawned::Failed(e2) => {
+                            status = 1;
+                        }
+                        Spawned::Ok(child) => {
+                            if k + 1 < end {
+                                status = grade_range(heap, exec, fs, cfg, dir, tasks, k + 1, end);
+                            }
+                            match child_wait(child) {
+                                Exited::Code(n) => {
+                                    code = n;
+                                }
+                                Exited::Signaled(g) => {
+                                    code = 256 + g;
+                                }
+                                Exited::Failed(e3) => {
+                                    code = 0 - 1;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    buffer.drop(heap, task_dir);
+    buffer.drop(heap, args);
+    buffer.drop(heap, cand);
+    buffer.drop(heap, scratch);
+    buffer.drop(heap, out_path);
+    if status != 0 || code != 0 {
+        return 1;
+    }
+    return 0;
+}
+
+// The settings file names the programs and the numbers of one iteration (scripts/iterate.sh's environment and variables, one `key value` a line): rl gpu qsw metal root w tokj cho (paths), tasks
+// (names, spaces between), step seed steps t nbt group pad lr invt, and m v (the previous moments, or `-`). `out` is a directory that holds kv pre dec cand train work. `eval 1` stops after the
+// samples (a held-out evaluation, no update).
+pub fn run[&h, &i, &f, &x, &c, &c2, &o, &a](heap: &!h Heap, io: &!i Io, fs: &f Fs(""), exec: &x Exec(""), clock: &c Clock, cfg: &c2 [byte], out: &o [byte], adapters: &a [byte]) -> [heap, err_write, io_write, fs_read(""), fs_write(""), file_read, exec(""), clock, pipe_write, pipe_read] int {
+    var log = buffer.empty(heap, 256);
+    let group = setting_int(cfg, "group", 8);
+    let t = setting_int(cfg, "t", 1152);
+    let steps = setting_int(cfg, "steps", 400);
+    let pad = setting_int(cfg, "pad", 151643);
+    let nbt = setting_int(cfg, "nbt", 4);
+    let tasks = setting(cfg, "tasks");
+    let n = bytes.count_byte(tasks, 32) + 1;
+    let nb = n * group;
+    let mut_primer = setting(cfg, "primer");
+    var status = 0;
+    var t0 = clock_ms(clock);
+
+    // 1. prompts: the chat template over each task, the token ids
+    var chat = buffer.empty(heap, 4096);
+    var names = buffer.empty(heap, 64);
+    var primer_path = buffer.append(heap, buffer.empty(heap, 64), mut_primer);
+    if len(mut_primer) == 0 {
+        primer_path = buffer.append(heap, primer_path, "prompts/primer.md");
+    }
+    let tasks_dir = setting(cfg, "tasks_dir");
+    var k = 1;
+    while k <= n && status == 0 {
+        let name = bytes.field(tasks, 32, k);
+        var spec_path = buffer.append(heap, buffer.empty(heap, 64), tasks_dir);
+        if len(tasks_dir) == 0 {
+            spec_path = buffer.append(heap, spec_path, "tasks");
+        }
+        spec_path = buffer.push(heap, spec_path, byte_of(47));
+        spec_path = buffer.append(heap, spec_path, name);
+        spec_path = buffer.append(heap, spec_path, "/task.spec");
+        borrow spec_path as &sp in {
+            borrow primer_path as &pp in {
+                let (spec, sf) = text.read_file(heap, fs, buffer.bytes(sp));
+                let (primer, pf) = text.read_file(heap, fs, buffer.bytes(pp));
+                if sf != 0 || pf != 0 {
+                    status = 1;
+                } else {
+                    borrow spec as &sb in {
+                        borrow primer as &rb in {
+                            let one = prompt.make(heap, buffer.bytes(sb), buffer.bytes(rb), true);
+                            if k > 1 {
+                                chat = buffer.append(heap, chat, "\n%%\n");
+                            }
+                            borrow one as &ob in {
+                                chat = buffer.append(heap, chat, buffer.bytes(ob));
+                            }
+                            buffer.drop(heap, one);
+                        }
+                    }
+                }
+                buffer.drop(heap, spec);
+                buffer.drop(heap, primer);
+            }
+        }
+        buffer.drop(heap, spec_path);
+        names = buffer.append(heap, names, name);
+        names = buffer.push(heap, names, byte_of(10));
+        k = k + 1;
+    }
+    buffer.drop(heap, primer_path);
+    if status == 0 {
+        borrow chat as &cb in {
+            if write_file(heap, fs, out, "chat.txt", buffer.bytes(cb)) < 0 {
+                status = 1;
+            }
+        }
+        borrow names as &nb2 in {
+            if write_file(heap, fs, out, "tasks.txt", buffer.bytes(nb2)) < 0 {
+                status = 1;
+            }
+        }
+    }
+    buffer.drop(heap, chat);
+    if status != 0 {
+        buffer.drop(heap, names);
+        buffer.drop(heap, log);
+        return fail(io, "chat");
+    }
+    var args = add(heap, buffer.empty(heap, 128), "tokenize");
+    args = add(heap, args, setting(cfg, "tokj"));
+    args = add_in(heap, args, out, "chat.txt");
+    if go(heap, exec, fs, out, setting(cfg, "gpu"), args, "prompts.txt", "tokenize.err") != 0 {
+        buffer.drop(heap, names);
+        buffer.drop(heap, log);
+        return fail(io, "tokenize");
+    }
+    var t1 = clock_ms(clock);
+    log = lap(heap, io, log, "tokenize", t0, t1);
+    t0 = t1;
+
+    // the rollout's inputs
+    let prompts_path = path_in(heap, out, "prompts.txt");
+    let r_prefix = path_in(heap, out, "r");
+    var rstatus = 1;
+    borrow prompts_path as &pp in {
+        borrow r_prefix as &rp in {
+            let (st, np, ns) = rollin.run(heap, fs, buffer.bytes(pp), group, t, steps, pad, setting_int(cfg, "seed", 1), buffer.bytes(rp));
+            rstatus = st;
+        }
+    }
+    buffer.drop(heap, r_prefix);
+    if rstatus != 0 {
+        buffer.drop(heap, prompts_path);
+        buffer.drop(heap, names);
+        buffer.drop(heap, log);
+        return fail(io, "rollin");
+    }
+    t1 = clock_ms(clock);
+    log = lap(heap, io, log, "rollin", t0, t1);
+    t0 = t1;
+
+    // 2. prefill: the training forward over the distinct prompts, with the adapters, saving the caches
+    if write_config(heap, fs, cfg, out, "pre.cfg", n, 1, false) < 0 {
+        status = 1;
+    }
+    var pre = add(heap, buffer.empty(heap, 256), "write");
+    pre = add(heap, pre, "--config");
+    pre = add_in(heap, pre, out, "pre.cfg");
+    pre = add(heap, pre, "--wdir");
+    pre = add(heap, pre, setting(cfg, "w"));
+    pre = add(heap, pre, "--out");
+    pre = add_in(heap, pre, out, "pre");
+    pre = add(heap, pre, "--root");
+    pre = add(heap, pre, setting(cfg, "root"));
+    pre = add(heap, pre, "--tokens");
+    pre = add_in(heap, pre, out, "r.prefill.i32");
+    pre = add(heap, pre, "--adapters");
+    pre = add(heap, pre, adapters);
+    pre = add(heap, pre, "--no-train");
+    pre = add(heap, pre, "--kv-export");
+    pre = add_in(heap, pre, out, "kv");
+    if status != 0 {
+        buffer.drop(heap, pre);
+    } else if go(heap, exec, fs, out, setting(cfg, "qsw"), pre, "pre.out", "pre.err") != 0 {
+        status = 1;
+    }
+    if status != 0 {
+        buffer.drop(heap, prompts_path);
+        buffer.drop(heap, names);
+        buffer.drop(heap, log);
+        return fail(io, "qsw write prefill");
+    }
+    if converse(heap, exec, fs, setting(cfg, "metal"), out, "pre/session", "1\ncheckpoint", "prefill.out") != 0 {
+        buffer.drop(heap, prompts_path);
+        buffer.drop(heap, names);
+        buffer.drop(heap, log);
+        return fail(io, "prefill session");
+    }
+    t1 = clock_ms(clock);
+    log = lap(heap, io, log, "prefill", t0, t1);
+    t0 = t1;
+
+    // 3. decode, from those caches and those adapters
+    if write_config(heap, fs, cfg, out, "dec.cfg", nb, steps, true) < 0 {
+        status = 1;
+    }
+    var dec = add(heap, buffer.empty(heap, 512), "decode");
+    dec = add(heap, dec, "--config");
+    dec = add_in(heap, dec, out, "dec.cfg");
+    dec = add(heap, dec, "--wdir");
+    dec = add(heap, dec, setting(cfg, "w"));
+    dec = add(heap, dec, "--out");
+    dec = add_in(heap, dec, out, "dec");
+    dec = add(heap, dec, "--root");
+    dec = add(heap, dec, setting(cfg, "root"));
+    dec = add(heap, dec, "--tokens");
+    dec = add_in(heap, dec, out, "r.tokens.i32");
+    dec = add(heap, dec, "--lens");
+    dec = add_in(heap, dec, out, "r.lens.i32");
+    dec = add(heap, dec, "--uniforms");
+    dec = add_in(heap, dec, out, "r.uniforms.f64");
+    dec = add(heap, dec, "--pos0");
+    dec = add_in(heap, dec, out, "r.pos0.i32");
+    dec = add(heap, dec, "--kv-dir");
+    dec = add_in(heap, dec, out, "kv");
+    dec = add(heap, dec, "--adapters");
+    dec = add_in(heap, dec, out, "pre");
+    if status != 0 {
+        buffer.drop(heap, dec);
+    } else if go(heap, exec, fs, out, setting(cfg, "qsw"), dec, "dec.out", "dec.err") != 0 {
+        status = 1;
+    }
+    if status != 0 {
+        buffer.drop(heap, prompts_path);
+        buffer.drop(heap, names);
+        buffer.drop(heap, log);
+        return fail(io, "qsw decode");
+    }
+    var steps_line = buffer.push_nat(heap, buffer.empty(heap, 8), steps);
+    var dstat = 1;
+    borrow steps_line as &sl in {
+        dstat = converse(heap, exec, fs, setting(cfg, "metal"), out, "dec/session", buffer.bytes(sl), "draws.txt");
+    }
+    buffer.drop(heap, steps_line);
+    if dstat != 0 {
+        buffer.drop(heap, prompts_path);
+        buffer.drop(heap, names);
+        buffer.drop(heap, log);
+        return fail(io, "decode session");
+    }
+    t1 = clock_ms(clock);
+    log = lap(heap, io, log, "decode", t0, t1);
+    t0 = t1;
+
+    // 4. completions, text, programs, rewards, samples
+    let draws_path = path_in(heap, out, "draws.txt");
+    let c_prefix = path_in(heap, out, "c");
+    var cstatus = 1;
+    borrow draws_path as &dp in {
+        borrow c_prefix as &cp in {
+            let (st, seqs, stopped) = rollout.complete(heap, fs, buffer.bytes(dp), group, steps, buffer.bytes(cp));
+            cstatus = st;
+        }
+    }
+    buffer.drop(heap, draws_path);
+    if cstatus != 0 {
+        buffer.drop(heap, c_prefix);
+        buffer.drop(heap, prompts_path);
+        buffer.drop(heap, names);
+        buffer.drop(heap, log);
+        return fail(io, "complete");
+    }
+    var detok = add(heap, buffer.empty(heap, 128), "detokenize");
+    detok = add(heap, detok, setting(cfg, "tokj"));
+    detok = add_in(heap, detok, out, "c.ids");
+    if go(heap, exec, fs, out, setting(cfg, "gpu"), detok, "dec.txt", "detokenize.err") != 0 {
+        buffer.drop(heap, c_prefix);
+        buffer.drop(heap, prompts_path);
+        buffer.drop(heap, names);
+        buffer.drop(heap, log);
+        return fail(io, "detokenize");
+    }
+    let dec_txt = path_in(heap, out, "dec.txt");
+    let cand_prefix = path_in(heap, out, "cand/c");
+    var estatus = 1;
+    borrow dec_txt as &dt in {
+        borrow cand_prefix as &cp in {
+            let (st, count) = rollout.extract(heap, fs, buffer.bytes(dt), buffer.bytes(cp));
+            estatus = st;
+        }
+    }
+    buffer.drop(heap, dec_txt);
+    buffer.drop(heap, cand_prefix);
+    buffer.drop(heap, c_prefix);
+    if estatus != 0 {
+        buffer.drop(heap, prompts_path);
+        buffer.drop(heap, names);
+        buffer.drop(heap, log);
+        return fail(io, "extract");
+    }
+    t1 = clock_ms(clock);
+    log = lap(heap, io, log, "complete", t0, t1);
+    t0 = t1;
+    var gstatus = 0;
+    borrow names as &nm in {
+        var lo = 0;
+        while lo < nb && gstatus == 0 {
+            var hi = lo + 6;
+            if hi > nb {
+                hi = nb;
+            }
+            gstatus = grade_range(heap, exec, fs, cfg, out, buffer.bytes(nm), lo, hi);
+            lo = hi;
+        }
+    }
+    if gstatus != 0 {
+        buffer.drop(heap, prompts_path);
+        buffer.drop(heap, names);
+        buffer.drop(heap, log);
+        return fail(io, "grade");
+    }
+    t1 = clock_ms(clock);
+    log = lap(heap, io, log, "grade", t0, t1);
+    t0 = t1;
+    let meta_path = path_in(heap, out, "c.meta");
+    let tasks_path = path_in(heap, out, "tasks.txt");
+    let res_prefix = path_in(heap, out, "res");
+    let samples_path = path_in(heap, out, "samples.jsonl");
+    var sstatus = 1;
+    borrow meta_path as &mp in {
+        borrow prompts_path as &pp in {
+            borrow tasks_path as &tp in {
+                borrow res_prefix as &rp in {
+                    borrow samples_path as &sp in {
+                        let (st, count) = rollout.samples(heap, fs, buffer.bytes(mp), buffer.bytes(pp), buffer.bytes(tp), buffer.bytes(rp), buffer.bytes(sp));
+                        sstatus = st;
+                    }
+                }
+            }
+        }
+    }
+    buffer.drop(heap, meta_path);
+    buffer.drop(heap, tasks_path);
+    buffer.drop(heap, res_prefix);
+    buffer.drop(heap, prompts_path);
+    buffer.drop(heap, names);
+    if sstatus != 0 {
+        buffer.drop(heap, samples_path);
+        buffer.drop(heap, log);
+        return fail(io, "samples");
+    }
+    t1 = clock_ms(clock);
+    log = lap(heap, io, log, "samples", t0, t1);
+    t0 = t1;
+    if setting_int(cfg, "eval", 0) == 1 {
+        buffer.drop(heap, samples_path);
+        borrow log as &lg in {
+            if write_file(heap, fs, out, "times.txt", buffer.bytes(lg)) < 0 {
+                status = 1;
+            }
+        }
+        buffer.drop(heap, log);
+        return status;
+    }
+
+    // 5. pack the kept samples into batches of the training session
+    let pk_prefix = path_in(heap, out, "pk");
+    var pstatus = 1;
+    var kept = 0;
+    var total = 0;
+    var ntok = 0;
+    borrow samples_path as &sp in {
+        borrow pk_prefix as &pp in {
+            let (st, tot, kp, nt) = pack.run(heap, fs, buffer.bytes(sp), buffer.bytes(pp), nbt, t, pad);
+            pstatus = st;
+            total = tot;
+            kept = kp;
+            ntok = nt;
+        }
+    }
+    buffer.drop(heap, samples_path);
+    buffer.drop(heap, pk_prefix);
+    if pstatus != 0 {
+        buffer.drop(heap, log);
+        return fail(io, "pack");
+    }
+    t1 = clock_ms(clock);
+    log = lap(heap, io, log, "pack", t0, t1);
+    t0 = t1;
+    var summary = buffer.append(heap, buffer.empty(heap, 128), "{\"samples\":");
+    summary = buffer.push_nat(heap, summary, total);
+    summary = buffer.append(heap, summary, ",\"kept\":");
+    summary = buffer.push_nat(heap, summary, kept);
+    summary = buffer.append(heap, summary, ",\"batches\":");
+    summary = buffer.push_nat(heap, summary, (kept + nbt - 1) / nbt);
+    summary = buffer.append(heap, summary, ",\"completion_tokens\":");
+    summary = buffer.push_nat(heap, summary, ntok);
+    summary = buffer.append(heap, summary, "}\n");
+    borrow summary as &sm in {
+        buffer.write(io, sm);
+    }
+    buffer.drop(heap, summary);
+    if kept == 0 {
+        io.error_all(io, "nothing kept: no update (every group had equal rewards)\n");
+        borrow log as &lg in {
+            write_file(heap, fs, out, "times.txt", buffer.bytes(lg));
+        }
+        buffer.drop(heap, log);
+        return 0;
+    }
+    let batches = (kept + nbt - 1) / nbt;
+    status = update(heap, io, fs, exec, clock, cfg, out, adapters, batches, t0, log);
+    return status;
+}
+
+// 5, the update: K steps of the training session, a checkpoint and a split each, then AdamW. `log` is consumed.
+fn update[&h, &i, &f, &x, &c, &c2, &o, &a](heap: &!h Heap, io: &!i Io, fs: &f Fs(""), exec: &x Exec(""), clock: &c Clock, cfg: &c2 [byte], out: &o [byte], adapters: &a [byte], batches: int, start: int, log: buffer.Buffer) -> [heap, err_write, io_write, fs_read(""), fs_write(""), file_read, exec(""), clock, pipe_write, pipe_read] int {
+    var lg = log;
+    var t0 = start;
+    let nbt = setting_int(cfg, "nbt", 4);
+    var status = 0;
+    if write_config(heap, fs, cfg, out, "train.cfg", nbt, batches, false) < 0 {
+        buffer.drop(heap, lg);
+        return fail(io, "train config");
+    }
+    var tr = add(heap, buffer.empty(heap, 512), "write");
+    tr = add(heap, tr, "--config");
+    tr = add_in(heap, tr, out, "train.cfg");
+    tr = add(heap, tr, "--wdir");
+    tr = add(heap, tr, setting(cfg, "w"));
+    tr = add(heap, tr, "--out");
+    tr = add_in(heap, tr, out, "train");
+    tr = add(heap, tr, "--root");
+    tr = add(heap, tr, setting(cfg, "root"));
+    tr = add(heap, tr, "--tokens");
+    tr = add_in(heap, tr, out, "pk.tokens.i32");
+    tr = add(heap, tr, "--adapters");
+    tr = add(heap, tr, adapters);
+    tr = add(heap, tr, "--weights");
+    tr = add_in(heap, tr, out, "pk.weights.f64");
+    tr = add(heap, tr, "--no-train");
+    tr = add(heap, tr, "--grads");
+    tr = add_in(heap, tr, out, "train/grads.bin");
+    if go(heap, exec, fs, out, setting(cfg, "qsw"), tr, "train.out", "train.err") != 0 {
+        buffer.drop(heap, lg);
+        return fail(io, "qsw write train");
+    }
+    var sargs = add_in(heap, buffer.empty(heap, 64), out, "train/session");
+    var failed = 0;
+    borrow sargs as &sb in {
+        match session.start(heap, exec, setting(cfg, "metal"), buffer.bytes(sb), "PATH=/usr/bin:/bin\0") {
+            session.Started::Failed(e) => {
+                failed = 1;
+            }
+            session.Started::Ok(first) => {
+                var s = first;
+                var k = 0;
+                while k < batches && failed == 0 {
+                    let (n1, r1, s1) = session.ask(heap, s, "1");
+                    buffer.drop(heap, r1);
+                    let (n2, r2, s2) = session.ask(heap, n1, "checkpoint");
+                    buffer.drop(heap, r2);
+                    s = n2;
+                    if s1 != 0 || s2 != 0 {
+                        failed = 2;
+                    } else {
+                        var sp = add(heap, buffer.empty(heap, 256), "split");
+                        sp = add(heap, sp, "--config");
+                        sp = add_in(heap, sp, out, "train.cfg");
+                        sp = add(heap, sp, "--grads");
+                        sp = add_in(heap, sp, out, "train/grads.bin");
+                        sp = add(heap, sp, "--out");
+                        let gpath = numbered(heap, out, "g", k, ".f64");
+                        borrow gpath as &gp in {
+                            sp = add(heap, sp, buffer.bytes(gp));
+                        }
+                        buffer.drop(heap, gpath);
+                        if go(heap, exec, fs, out, setting(cfg, "qsw"), sp, "split.out", "split.err") != 0 {
+                            failed = 3;
+                        }
+                    }
+                    k = k + 1;
+                }
+                if session.finish(heap, s) != 0 && failed == 0 {
+                    failed = 4;
+                }
+            }
+        }
+    }
+    buffer.drop(heap, sargs);
+    if failed != 0 {
+        buffer.drop(heap, lg);
+        return fail(io, "training session");
+    }
+    var t1 = clock_ms(clock);
+    lg = lap(heap, io, lg, "train", t0, t1);
+    t0 = t1;
+
+    // AdamW over the summed gradients
+    var conf = buffer.append(heap, buffer.empty(heap, 160), "{\"step\": ");
+    conf = buffer.push_nat(heap, conf, setting_int(cfg, "step", 1));
+    conf = buffer.append(heap, conf, ", \"lr\": ");
+    let lr = setting(cfg, "lr");
+    if len(lr) == 0 {
+        conf = buffer.append(heap, conf, "0.0001");
+    } else {
+        conf = buffer.append(heap, conf, lr);
+    }
+    conf = buffer.append(heap, conf, ", \"beta1\": 0.9, \"beta2\": 0.999, \"eps\": 1e-8, \"weight_decay\": 0.0, \"clip\": 1.0}\n");
+    borrow conf as &cb in {
+        if write_file(heap, fs, out, "adamw.json", buffer.bytes(cb)) < 0 {
+            status = 1;
+        }
+    }
+    buffer.drop(heap, conf);
+    var ad = add(heap, buffer.empty(heap, 512), "adamw");
+    ad = add_in(heap, ad, out, "adamw.json");
+    ad = add(heap, ad, adapters);
+    let mv = setting(cfg, "m");
+    if len(mv) == 0 {
+        ad = add(heap, ad, "-");
+    } else {
+        ad = add(heap, ad, mv);
+    }
+    let vv = setting(cfg, "v");
+    if len(vv) == 0 {
+        ad = add(heap, ad, "-");
+    } else {
+        ad = add(heap, ad, vv);
+    }
+    ad = add_in(heap, ad, out, "new");
+    var k = 0;
+    while k < batches {
+        let gpath = numbered(heap, out, "g", k, ".f64");
+        borrow gpath as &gp in {
+            ad = add(heap, ad, buffer.bytes(gp));
+        }
+        buffer.drop(heap, gpath);
+        k = k + 1;
+    }
+    if status != 0 || go(heap, exec, fs, out, setting(cfg, "rl"), ad, "adamw.out", "adamw.err") != 0 {
+        buffer.drop(heap, lg);
+        return fail(io, "adamw");
+    }
+    t1 = clock_ms(clock);
+    lg = lap(heap, io, lg, "adamw", t0, t1);
+    let ao_path = path_in(heap, out, "adamw.out");
+    borrow ao_path as &ap in {
+        let (ao, af) = text.read_file(heap, fs, buffer.bytes(ap));
+        if af == 0 {
+            borrow ao as &ab in {
+                buffer.write(io, ab);
+            }
+        }
+        buffer.drop(heap, ao);
+    }
+    buffer.drop(heap, ao_path);
+    borrow lg as &lr in {
+        write_file(heap, fs, out, "times.txt", buffer.bytes(lr));
+    }
+    buffer.drop(heap, lg);
+    return 0;
+}
