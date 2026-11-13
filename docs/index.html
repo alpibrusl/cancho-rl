@@ -2,8 +2,8 @@
 <html lang="en">
 <!--
   The landing page, in the style of cancho-ml's (docs/assets/site.css and home.css are copied from there, unchanged). Hand-written.
-  Every number on it is copied from docs/design.md (sections 17 to 25) and every command output is a real run of build/rl;
-  nothing here is a promise about a result that has not been measured. R1 (the training run) is described as under way, with no figure.
+  Every number on it is copied from docs/design.md (sections 17 to 48) and every command output is a real run of build/rl;
+  nothing here is a promise about a result that has not been measured. R1 to R4 (the training runs) are in sections 27 to 48; every figure on this page is copied from there, with its caveat.
 -->
 <head>
 <meta charset="utf-8">
@@ -112,9 +112,9 @@
 
 <section class="sec" id="uses"><div class="wrap">
   <h2>Use cases</h2>
-  <p class="lead">One is built and being measured. The others are designed, not built; each says what it is waiting for.</p>
+  <p class="lead">One is built and measured, on a GPU, end to end. The others are designed, not built; each says what it is waiting for.</p>
   <div class="cards">
-    <div class="card"><h3>A small model that writes cancho</h3><p><b>Built, R1 under way.</b> GRPO with LoRA on Qwen2.5-1.5B-Instruct. The reward is the compiler's own verdict, so it improves exactly what the language tooling already measures. A torch/peft reference run comes first; a cancho-gpu run must equal it before it is trusted.</p></div>
+    <div class="card"><h3>A small model that writes cancho</h3><p><b>Built and measured (R1 to R4).</b> GRPO with LoRA on Qwen2.5-1.5B-Instruct, the whole iteration on cancho-gpu and driven from cancho: batched sampling, grading, the weighted gradient, AdamW. The held-out rate went from 0.254 to about 0.47 and 0.49 in 40 iterations on two seeds (about 92 minutes each). One family of 28 integer functions, so it says the reward trains a model on that family and nothing wider.</p></div>
     <div class="card"><h3>Auditing any reward before training</h3><p><b>Built.</b> The grader, the probes and the gate are reusable on their own: point <code>rl grade</code> at any task directory and see whether an empty program, a constant, an early exit or a mutant earns anything. If it does, the reward is wrong, and you learn that before a GPU hour is spent.</p></div>
     <div class="card"><h3>A control task on a simulator</h3><p><b>Designed.</b> The cancho-afm digital twin (a board, a plant, a PID loop, about one second a run) is the second instance, with the controller's gains as the policy. The grader there is a measurement of the twin, not of the instrument, and the design says so. Waiting on <a href="https://github.com/alpibrusl/cancho-afm/issues/31">cancho-afm#31</a>.</p></div>
     <div class="card"><h3>Learning inside a safety envelope</h3><p><b>Designed.</b> cancho-robot's kinematics and safety rules fix the bounds; what learns cannot change them. There is no simulator yet, so nothing here is claimed. Waiting on <a href="https://github.com/alpibrusl/cancho-robot/issues/41">cancho-robot#41</a>.</p></div>
@@ -123,14 +123,16 @@
 
 <section class="sec" id="results"><div class="wrap">
   <h2>Measured, not promised</h2>
-  <p class="lead">The untrained Qwen2.5-1.5B-Instruct, eight samples per task, 95% bootstrap intervals over tasks, on the first 80 tasks. Loop tasks are the hard side.</p>
+  <p class="lead">Qwen2.5-1.5B-Instruct, 28 held-out tasks, 8 samples each, one M4 Max, cancho-gpu pinned by commit. The loop and its logs are in the repository.</p>
   <div class="nums">
+    <div class="n"><b>0.254 &rarr; 0.464, 0.487</b><span>held-out solve rate at step 0 and step 40, seeds 1 and 2; both rise steeply in 10 iterations and then plateau at 0.47 to 0.53</span></div>
+    <div class="n"><b>63 to 82 s</b><span>one whole iteration (32 rollouts, grading, update), 3.3 to 3.8 times R1's torch loop; 40 iterations and 5 evaluations in about 92 minutes</span></div>
+    <div class="n"><b>0.99995</b><span>cosine of the weighted gradient against torch's on a real batch, over 392 adapter matrices</span></div>
+    <div class="n"><b>95 of 95</b><span>data files byte-identical between the shell driver and <code>rl iterate</code> for one iteration; a run reproduces bit for bit, even across a restart</span></div>
     <div class="n"><b>104</b><span>tasks, each solved by its own reference in the gate (34 also cross-checked against an independent Python port)</span></div>
-    <div class="n"><b>23.1%</b><span>base solve rate over 80 tasks, interval 17.3 to 29.7%</span></div>
-    <div class="n"><b>41% / 13%</b><span>branch tasks against loop tasks on the train side, 17 and 40 tasks</span></div>
     <div class="n"><b>36 MB</b><span>peak memory of a program that recurses forever, graded in 0.7 s</span></div>
   </div>
-  <p class="fine">Known limits: the CPU limit (<code>ulimit -t</code>) does not stop a runaway on macOS, so the wall deadline is what works; 38 of the 104 tasks are at zero for the base model and carry no training signal yet; the intervals describe these hand-written tasks only. The full tables are in <a href="https://github.com/alpibrusl/cancho-rl/blob/main/docs/design.md">docs/design.md</a>, sections 17 to 25.</p>
+  <p class="fine">Known limits: two seeds, no interval; the held-out tasks are the same family as the training tasks; R1's sampler kept a repetition penalty of 1.1 that its loss did not know about, so R1's curve (0.107 to 0.384) is not comparable point for point with ours (section 45); a bug found by the second run (identical partial rewards counted as live) was fixed, and the first run's rates stand as measured with it; the CPU limit (<code>ulimit -t</code>) does not stop a runaway on macOS, so the wall deadline is what works.</p>
 </div></section>
 
 <section class="sec" id="try"><div class="wrap">
@@ -143,7 +145,7 @@ export CANCHO=$PWD/../cancho/target/debug/cancho
 scripts/gate.sh                                              # builds build/rl, grades every reference and probe
 scripts/tools.sh                                             # optional: cancho-stats and cancho-tools, pinned
 scripts/sample.sh Qwen/Qwen2.5-1.5B-Instruct 8 work/s1       # sample and grade; one GPU job at a time</code></pre>
-  <p class="fine">The command line is <code>rl grade | split | prompt | report | tasks</code>. Every refusal has a rule tag: <code>rl.usage</code>, <code>rl.task</code>, <code>rl.input</code>.</p>
+  <p class="fine">Training needs cancho-gpu's Metal session binaries and the model's weights; <code>rl iterate</code> and <code>rl loop</code> drive them. The command line is <code>rl grade | split | prompt | chat | report | tasks | pack | adamw | rollin | complete | extract | samples | iterate | loop | ask</code>. Every refusal has a rule tag: <code>rl.usage</code>, <code>rl.task</code>, <code>rl.input</code>.</p>
 </div></section>
 
 </main>
