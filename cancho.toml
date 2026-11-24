@@ -1,6 +1,6 @@
 [package]
 name = "rl"
-cancho = "8812bd599813ee4fbee49a4562dc35b33964e342"   # the compiler these sources were written for (this repository's main at the time)
+cancho = "0.1.1"   # the compiler release these sources were written for
 
 [[bin]]
 name = "rl"
